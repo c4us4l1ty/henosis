@@ -6,15 +6,23 @@ capability. The product vision and staged engineering plan live in [`vision/`](v
 ## Current state
 
 This repository currently contains only the first piece of the Block 1 process
-adapter: a small command-line launcher and a reusable `LauncherSpec`. The launcher
+adapter: an interactive process workspace and a reusable `LauncherSpec`. The launcher
 starts an executable with an **empty environment**, so credentials in the parent
 environment are not automatically passed to it. Arguments are passed directly,
 not interpreted by a shell.
 
 ```sh
 cargo test --workspace
+cargo run -p henosis-shell # interactive workspace
 cargo run -p henosis-shell -- /bin/echo 'Hello, Henosis'
 ```
+
+In the workspace, use `launch /absolute/path/to/program "argument with spaces"`,
+`list`, `stop ID`, and `exit`. Background children have no terminal input;
+their output shares the workspace terminal. Exit attempts to stop and reap direct
+children, but does **not** terminate descendants. Processes that escape or outlive
+their parent are not supervised. One-shot invocation remains available for
+interactive terminal programs.
 
 Use an absolute path to the executable. Programs that rely on `PATH`, `HOME`, or
 other environment variables may not work from the CLI yet. Library callers can
