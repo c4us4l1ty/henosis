@@ -31,7 +31,7 @@ fn open_read(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
-fn read_file(file: &File) -> io::Result<Vec<Event>> {
+fn snapshot(file: &File) -> io::Result<(Vec<Event>, Vec<u8>)> {
     if !file.metadata()?.is_file() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal is not a regular file"));
     }
@@ -57,7 +57,11 @@ fn read_file(file: &File) -> io::Result<Vec<Event>> {
         })?;
         events.push(event);
     }
-    Ok(events)
+    Ok((events, bytes))
+}
+
+fn read_file(file: &File) -> io::Result<Vec<Event>> {
+    Ok(snapshot(file)?.0)
 }
 
 /// Read the entire append-only journal. Proposal IDs are one-based event positions.
@@ -70,6 +74,28 @@ pub fn read(path: &Path) -> io::Result<Vec<Event>> {
     }
     fs2::FileExt::lock_shared(&file)?;
     read_file(&file)
+}
+
+/// Copy a validated, point-in-time snapshot to a new file without replacing an
+/// existing path. Both directories must be trusted and writers must cooperate
+/// with the journal's file locks. The backup is plaintext, not a secure vault.
+/// The file is synced before publication; directory durability is not promised.
+pub fn backup(source: &Path, destination: &Path) -> io::Result<usize> {
+    let source_file = open_read(source)?;
+    if !source_file.metadata()?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal is not a regular file"));
+    }
+    fs2::FileExt::lock_shared(&source_file)?;
+    let (events, bytes) = snapshot(&source_file)?;
+    // The complete snapshot is held in memory, so the source lock can be released
+    // before potentially slow backup I/O. Later appends are not in this backup.
+    drop(source_file);
+    let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(&bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist_noclobber(destination).map_err(|error| error.error)?;
+    Ok(events.len())
 }
 
 fn validate(events: &[Event], event: &Event) -> io::Result<()> {
@@ -311,6 +337,67 @@ mod tests {
         assert!(append(&path, proposal()).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), record);
         std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn backup_preserves_exact_bytes_and_does_not_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("journal");
+        let destination = dir.path().join("backup");
+        append(&source, proposal()).unwrap();
+        append(&source, Event::Observed { proposal: 1, outcome: "observed".into() }).unwrap();
+        assert_eq!(backup(&source, &destination).unwrap(), 2);
+        assert_eq!(std::fs::read(&source).unwrap(), std::fs::read(&destination).unwrap());
+        assert_eq!(read(&source).unwrap(), read(&destination).unwrap());
+        append(&source, proposal()).unwrap();
+        assert_eq!(backup(&source, &destination).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(read(&destination).unwrap().len(), 2);
+        assert_eq!(backup(&source, &source).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(read(&source).unwrap().len(), 3);
+    }
+    #[test]
+    fn backup_rejects_missing_or_corrupt_source_without_creating_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("journal");
+        let destination = dir.path().join("backup");
+        assert_eq!(backup(&source, &destination).unwrap_err().kind(), io::ErrorKind::NotFound);
+        std::fs::write(&source, b"{broken\n").unwrap();
+        assert_eq!(backup(&source, &destination).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(!destination.exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn backup_is_private_on_unix() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("journal");
+        let destination = dir.path().join("backup");
+        append(&source, proposal()).unwrap();
+        backup(&source, &destination).unwrap();
+        assert_eq!(std::fs::metadata(destination).unwrap().permissions().mode() & 0o077, 0);
+    }
+    #[test]
+    fn backup_during_writes_is_a_valid_prefix() {
+        use std::sync::{Arc, Barrier};
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("journal");
+        let destination = dir.path().join("backup");
+        append(&source, proposal()).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let writer_path = source.clone();
+        let writer_barrier = Arc::clone(&barrier);
+        let writer = std::thread::spawn(move || {
+            writer_barrier.wait();
+            for _ in 0..20 { append(&writer_path, proposal()).unwrap(); }
+        });
+        barrier.wait();
+        let count = backup(&source, &destination).unwrap();
+        writer.join().unwrap();
+        let backup_events = read(&destination).unwrap();
+        let all_events = read(&source).unwrap();
+        assert_eq!(count, backup_events.len());
+        assert!((1..=21).contains(&count));
+        assert_eq!(backup_events, all_events[..count]);
+        assert!(std::fs::read(&source).unwrap().starts_with(&std::fs::read(&destination).unwrap()));
     }
     #[test]
     fn concurrent_writers_get_distinct_ids_and_leave_a_valid_journal() {
