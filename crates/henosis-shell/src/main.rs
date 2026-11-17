@@ -8,6 +8,15 @@ use std::process::ExitCode;
 
 const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
+// Journal content is untrusted and must not emit terminal control sequences.
+// Keep ordinary Unicode intact while making control characters visible.
+fn terminal_text(text: &str) -> String {
+    text.chars().flat_map(|ch| {
+        if ch.is_control() { ch.escape_default().collect::<String>().chars().collect::<Vec<_>>() }
+        else { vec![ch] }
+    }).collect()
+}
+
 fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);
     if let Some(command) = args.next() {
@@ -102,7 +111,7 @@ fn workspace() -> io::Result<()> {
                 Ok(ranked) => {
                     println!("Subjective estimates: information × failure / cost (not verified):");
                     for item in ranked {
-                        println!("{}  score={:.2} ({} × {} / {})  Goal: {}\n  Hypothesis: {}\n  Test: {}", item.id, f64::from(item.information) * f64::from(item.failure) / f64::from(item.cost), item.information, item.failure, item.cost, item.goal, item.hypothesis, item.test);
+                        println!("{}  score={:.2} ({} × {} / {})  Goal: {}\n  Hypothesis: {}\n  Test: {}", item.id, f64::from(item.information) * f64::from(item.failure) / f64::from(item.cost), item.information, item.failure, item.cost, terminal_text(&item.goal), terminal_text(&item.hypothesis), terminal_text(&item.test));
                     }
                 },
                 Err(error) => eprintln!("Could not rank journal: {error}"),
@@ -111,8 +120,8 @@ fn workspace() -> io::Result<()> {
                 Ok(events) if events.is_empty() => println!("No events."),
                 Ok(events) => for (index, event) in events.iter().enumerate() {
                     match event {
-                        Event::Proposed { goal, hypothesis, test } => println!("{}  PROPOSAL (unverified)\n  Goal: {}\n  Hypothesis: {}\n  Test: {}", index + 1, goal, hypothesis, test),
-                        Event::Observed { proposal, outcome } => println!("{}  OBSERVATION for {} (unverified)\n  Outcome: {}", index + 1, proposal, outcome),
+                        Event::Proposed { goal, hypothesis, test } => println!("{}  PROPOSAL (unverified)\n  Goal: {}\n  Hypothesis: {}\n  Test: {}", index + 1, terminal_text(goal), terminal_text(hypothesis), terminal_text(test)),
+                        Event::Observed { proposal, outcome } => println!("{}  OBSERVATION for {} (unverified)\n  Outcome: {}", index + 1, proposal, terminal_text(outcome)),
                         Event::Assessed { proposal, information, failure, cost } => println!("{}  ASSESSMENT for {} (subjective)\n  Information: {}  Failure: {}  Cost: {}", index + 1, proposal, information, failure, cost),
                     }
                 },
