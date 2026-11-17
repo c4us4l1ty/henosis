@@ -107,3 +107,21 @@ fn workspace_closes_and_reopens_a_proposal() {
     assert!(stdout.contains("CLOSED proposal 1"));
     assert!(stdout.contains("REOPENED proposal 1"));
 }
+
+#[cfg(unix)]
+#[test]
+fn process_list_escapes_executable_names() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("sleep\x1b[2J");
+    std::os::unix::fs::symlink("/bin/sleep", &path).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let input = format!("launch \"{}\" 30\nlist\nexit\n", path.display());
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains('\x1b'), "{stdout}");
+    assert!(stdout.contains(r"sleep\u{1b}[2J"), "{stdout}");
+}

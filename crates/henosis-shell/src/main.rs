@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
-// Journal content is untrusted and must not emit terminal control sequences.
+// User-controlled text must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
 fn terminal_text(text: &str) -> String {
     let mut output = String::with_capacity(text.len());
@@ -71,7 +71,7 @@ fn workspace() -> io::Result<()> {
                 Ok(processes) if processes.is_empty() => println!("No processes."),
                 Ok(processes) => for process in processes {
                     let state = process.status.map_or_else(|| "running".to_owned(), |s| format!("exited ({s})"));
-                    println!("{}  pid={}  {}  {}", process.id, process.pid, state, process.program.to_string_lossy());
+                    println!("{}  pid={}  {}  {}", process.id, process.pid, state, terminal_text(&process.program.to_string_lossy()));
                 },
                 Err(error) => eprintln!("Could not list processes: {error}"),
             },
