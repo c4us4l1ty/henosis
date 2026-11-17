@@ -73,7 +73,11 @@ readers and writers use advisory file locks to serialize access; other programs
 may ignore the locks, and filesystems may not support them reliably. Newly created
 files use owner-only permissions on Unix; existing permissions are unchanged.
 It is not encrypted, signed, tamper-evident, or protected against rollback, and
-partial writes or storage failures can require manual repair. The directory must
+partial writes or storage failures can require manual repair. An append error may
+be reported after some or all of the event was written (including on sync failure);
+inspect the journal before retrying to avoid duplicating an event. Initial file
+creation is not guaranteed durable across a crash because its directory is not
+synced. The directory must
 not be modified concurrently, including replacing or unlinking the journal path. These are user
 assertions, not verification, automated crux selection, or proof of capability.
 

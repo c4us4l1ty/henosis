@@ -186,6 +186,8 @@ impl Write for RecordBuffer {
 /// Append one event and return its one-based position. Readers and writers
 /// cooperate using advisory file locks. The journal is plaintext and is not
 /// encrypted, signed, or tamper-evident. Use only in a trusted directory.
+/// An error may occur after some or all bytes were written, including on sync
+/// failure; inspect the journal before retrying. Directory creation is not synced.
 pub fn append(path: &Path, event: Event) -> io::Result<u64> {
     // Reject invalid proposals before creating a new file.
     if matches!(&event, Event::Proposed { .. }) { validate(&[], &event)?; }
@@ -363,6 +365,21 @@ mod tests {
         std::fs::write(&source, b"{broken\n").unwrap();
         assert_eq!(backup(&source, &destination).unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert!(!destination.exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn backup_does_not_replace_symlink_or_its_target() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("journal");
+        let destination = dir.path().join("backup-link");
+        let target = dir.path().join("target");
+        append(&source, proposal()).unwrap();
+        std::fs::write(&target, b"untouched").unwrap();
+        symlink(&target, &destination).unwrap();
+        assert_eq!(backup(&source, &destination).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert!(std::fs::symlink_metadata(&destination).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read(target).unwrap(), b"untouched");
     }
     #[cfg(unix)]
     #[test]
