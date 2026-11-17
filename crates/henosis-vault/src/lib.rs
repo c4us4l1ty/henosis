@@ -1,9 +1,12 @@
 #![deny(unsafe_code)]
 //! Early identity primitives, **not a secure vault**.
 //!
-//! There is no encrypted storage, memory locking, process isolation, or trusted
+//! There is no memory locking, process isolation, or trusted
 //! display. Avoid using real funds, production credentials, or a mnemonic used
 //! elsewhere. Mnemonics and passphrases are still exposed to the caller and OS.
+
+pub mod envelope;
+pub mod storage;
 
 use bip39::{Language, Mnemonic};
 use ed25519_dalek::{Signer, SigningKey};
@@ -104,6 +107,19 @@ mod tests {
         assert_eq!(first.public_key(), second.public_key());
         assert_eq!(first.sign(b"test"), second.sign(b"test"));
         assert_ne!(first.public_key(), other.public_key());
+    }
+
+    #[test]
+    fn identity_v1_recovery_vector_is_stable() {
+        // Independently calculated from the public BIP-39 TREZOR test vector
+        // using PBKDF2-HMAC-SHA512, HKDF-SHA256, and Ed25519.
+        let identity = Identity::recover(PHRASE, "TREZOR").unwrap();
+        assert_eq!(identity.public_key(), [
+            0x69, 0x61, 0xd8, 0x78, 0xb0, 0x3a, 0x53, 0xf1,
+            0xf0, 0xc9, 0x12, 0xfb, 0x4e, 0x04, 0x30, 0xe8,
+            0xb1, 0x87, 0x40, 0xff, 0xdd, 0xbd, 0x49, 0x44,
+            0xde, 0x4a, 0xee, 0x85, 0x28, 0xda, 0xd9, 0x58,
+        ]);
     }
 
     #[test]

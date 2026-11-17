@@ -11,3 +11,9 @@ getrandom = "0.2"
 hkdf = "0.12"
 sha2 = "0.10"
 zeroize = "1.8"
+argon2 = { version = "0.5", features = ["zeroize"] }
+chacha20poly1305 = "0.10"
+tempfile = "3.15"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
