@@ -1,6 +1,6 @@
 #![deny(unsafe_code)]
 //! A deliberately modest, user-authored record of goals and falsification tests.
-//! Records are observations, not verified capabilities or an automated crux ranking.
+//! Records and estimates are user assertions, not verified capabilities.
 
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
@@ -12,6 +12,7 @@ use std::path::Path;
 pub enum Event {
     Proposed { goal: String, hypothesis: String, test: String },
     Observed { proposal: u64, outcome: String },
+    Assessed { proposal: u64, information: u8, failure: u8, cost: u8 },
 }
 
 /// Read the entire append-only journal. Proposal IDs are one-based event positions.
@@ -45,16 +46,61 @@ pub fn read(path: &Path) -> io::Result<Vec<Event>> {
 
 fn validate(events: &[Event], event: &Event) -> io::Result<()> {
     let nonempty = |s: &str| !s.trim().is_empty();
+    let is_proposal = |id: &u64| id.checked_sub(1)
+        .and_then(|n| usize::try_from(n).ok())
+        .and_then(|n| events.get(n))
+        .is_some_and(|event| matches!(event, Event::Proposed { .. }));
     let valid = match event {
         Event::Proposed { goal, hypothesis, test } => nonempty(goal) && nonempty(hypothesis) && nonempty(test),
-        Event::Observed { proposal, outcome } => {
-            nonempty(outcome) && proposal.checked_sub(1)
-                .and_then(|n| usize::try_from(n).ok())
-                .and_then(|n| events.get(n))
-                .is_some_and(|event| matches!(event, Event::Proposed { .. }))
+        Event::Observed { proposal, outcome } => nonempty(outcome) && is_proposal(proposal),
+        Event::Assessed { proposal, information, failure, cost } => {
+            is_proposal(proposal) && [*information, *failure, *cost].iter().all(|n| (1..=5).contains(n))
         }
     };
-    if valid { Ok(()) } else { Err(io::Error::new(io::ErrorKind::InvalidInput, "fields must be nonempty and observations must reference an existing proposal")) }
+    if valid { Ok(()) } else { Err(io::Error::new(io::ErrorKind::InvalidInput, "fields must be nonempty, references must name an existing proposal, and estimates must be between 1 and 5")) }
+}
+
+/// A proposal with its most recent user-supplied assessment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RankedProposal {
+    pub id: u64,
+    pub goal: String,
+    pub hypothesis: String,
+    pub test: String,
+    pub information: u8,
+    pub failure: u8,
+    pub cost: u8,
+}
+
+/// Rank assessed proposals by information × failure / cost, highest first.
+/// Estimates are ordinal heuristics, not probabilities or measured information.
+/// Ties use proposal ID ascending. Observations do not remove proposals.
+/// Rejects invalid event sequences, including references to future proposals.
+pub fn rank(events: &[Event]) -> io::Result<Vec<RankedProposal>> {
+    use std::collections::BTreeMap;
+    let mut assessments = BTreeMap::new();
+    for (index, event) in events.iter().enumerate() {
+        validate(&events[..index], event)?;
+        if let Event::Assessed { proposal, information, failure, cost } = event {
+            assessments.insert(*proposal, (*information, *failure, *cost));
+        }
+    }
+    let mut ranked = Vec::new();
+    for (index, event) in events.iter().enumerate() {
+        if let Event::Proposed { goal, hypothesis, test } = event {
+            let id = u64::try_from(index).ok().and_then(|n| n.checked_add(1))
+                .ok_or_else(|| io::Error::other("journal is too large"))?;
+            if let Some(&(information, failure, cost)) = assessments.get(&id) {
+                ranked.push(RankedProposal { id, goal: goal.clone(), hypothesis: hypothesis.clone(), test: test.clone(), information, failure, cost });
+            }
+        }
+    }
+    ranked.sort_by(|a, b| {
+        let a_score = u32::from(a.information) * u32::from(a.failure) * u32::from(b.cost);
+        let b_score = u32::from(b.information) * u32::from(b.failure) * u32::from(a.cost);
+        b_score.cmp(&a_score).then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(ranked)
 }
 
 /// Append one event and return its one-based position. This journal is plaintext
@@ -100,6 +146,40 @@ mod tests {
         assert_eq!(append(&path, observation.clone()).unwrap(), 2);
         assert_eq!(read(&path).unwrap(), vec![proposal(), observation]);
         assert!(append(&path, Event::Observed { proposal: 2, outcome: "x".into() }).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn ranking_uses_latest_assessment_and_exact_tie_breaking() {
+        let events = vec![
+            proposal(), proposal(), proposal(),
+            Event::Assessed { proposal: 1, information: 5, failure: 5, cost: 1 },
+            Event::Assessed { proposal: 2, information: 4, failure: 3, cost: 2 },
+            Event::Assessed { proposal: 1, information: 3, failure: 4, cost: 2 },
+            Event::Observed { proposal: 2, outcome: "tested".into() },
+        ];
+        let ranked = rank(&events).unwrap();
+        assert_eq!(ranked.iter().map(|p| p.id).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!((ranked[0].information, ranked[0].failure, ranked[0].cost), (3, 4, 2));
+        let mut changed = events;
+        changed.push(Event::Assessed { proposal: 2, information: 5, failure: 5, cost: 2 });
+        assert_eq!(rank(&changed).unwrap()[0].id, 2);
+    }
+    #[test]
+    fn assessment_validation_applies_to_read_append_and_rank() {
+        let path = path();
+        append(&path, proposal()).unwrap();
+        for event in [
+            Event::Assessed { proposal: 1, information: 0, failure: 1, cost: 1 },
+            Event::Assessed { proposal: 1, information: 1, failure: 6, cost: 1 },
+            Event::Assessed { proposal: 1, information: 1, failure: 1, cost: 0 },
+            Event::Assessed { proposal: 2, information: 1, failure: 1, cost: 1 },
+        ] {
+            assert!(append(&path, event.clone()).is_err());
+            assert!(rank(&[proposal(), event]).is_err());
+        }
+        let event = Event::Assessed { proposal: 1, information: 5, failure: 4, cost: 3 };
+        append(&path, event.clone()).unwrap();
+        assert_eq!(read(&path).unwrap(), vec![proposal(), event]);
         std::fs::remove_file(path).unwrap();
     }
     #[test]

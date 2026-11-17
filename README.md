@@ -71,3 +71,21 @@ files use owner-only permissions on Unix; existing permissions are unchanged.
 It is not encrypted, signed, tamper-evident, or protected against rollback, and
 partial writes or storage failures can require manual repair. These are user
 assertions, not verification, automated crux selection, or proof of capability.
+
+To compare proposed tests, record subjective estimates and view the ranking:
+
+```text
+assess ./crux.jsonl 1 5 4 2
+rank ./crux.jsonl
+```
+
+The three integer estimates are **information**, **fatal-failure concern**, and
+**cost**, each from 1 (low) to 5 (high). The ranking sorts by
+`information × failure / cost`, highest first; ties go to the earlier proposal.
+This is a simple heuristic applied to ordinal estimates, not a calibrated
+probability, measurement of information gain, or proof of the best experiment.
+The latest assessment of each proposal is used; unassessed proposals are omitted.
+Observations do not automatically close or change a proposal's rank: reassess it
+as your understanding changes. The full history remains visible with `journal`.
+Older journals containing only proposals and observations remain readable; older
+versions of Henosis cannot read the new assessment records.
