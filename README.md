@@ -73,7 +73,11 @@ readers and writers use advisory file locks to serialize access; other programs
 may ignore the locks, and filesystems may not support them reliably. Newly created
 files use owner-only permissions on Unix; existing permissions are unchanged.
 It is not encrypted, signed, tamper-evident, or protected against rollback, and
-partial writes or storage failures can require manual repair. The directory must
+partial writes or storage failures can require manual repair. An append error may
+be reported after some or all of the event was written (including on sync failure);
+inspect the journal before retrying to avoid duplicating an event. Initial file
+creation is not guaranteed durable across a crash because its directory is not
+synced. The directory must
 not be modified concurrently, including replacing or unlinking the journal path. These are user
 assertions, not verification, automated crux selection, or proof of capability.
 
@@ -116,3 +120,20 @@ appears in `rank`; reopening retains its latest assessment. Status changes are
 user-reported, may be repeated, and do not verify the result. Observations and
 assessments can still be recorded for closed proposals. Older versions cannot
 read status-change records.
+
+### Back up a journal
+
+```text
+backup ./crux.jsonl ./crux-backup.jsonl
+```
+
+This validates the journal under a shared lock and creates a point-in-time,
+byte-for-byte plaintext copy. Later events are not included. The destination
+must not exist, and both directories must be trusted; this operation will not
+replace an existing file. The temporary backup is synced before publication,
+but directory durability is not guaranteed and a crash may leave a temporary
+file. Backup permissions are owner-only on Unix and depend on directory ACLs on
+Windows. Backups are not encrypted or tamper-evident. Store copies securely
+and separately, and verify that they can be read before relying on them.
+To restore, stop all writers and copy a verified backup to a **new** journal
+path; do not replace or unlink a journal while any workspace has it open.
