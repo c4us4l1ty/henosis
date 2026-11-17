@@ -137,3 +137,32 @@ Windows. Backups are not encrypted or tamper-evident. Store copies securely
 and separately, and verify that they can be read before relying on them.
 To restore, stop all writers and copy a verified backup to a **new** journal
 path; do not replace or unlink a journal while any workspace has it open.
+
+### Run a trusted experiment
+
+Create a proposal, then run a command and attach its result:
+
+```text
+propose ./crux.jsonl "Check the build" "Tests catch regressions" "Run the test suite"
+run ./crux.jsonl 1 /absolute/project/path target/output.bin 0 /absolute/path/to/program argument
+show ./crux.jsonl 1
+```
+
+The fields after the proposal ID are the absolute project directory, artifact
+path relative to it, expected exit code, absolute executable, and arguments.
+Arguments are passed directly; no shell is invoked unless explicitly requested.
+The child receives an empty environment and no terminal input. This runs **trusted
+software only**, not a sandbox. It can read files, use the network, and launch
+descendants. A 30-second timeout kills only the direct child; descendants may
+continue. Output is drained but only the first 16 KiB per stream is retained.
+If descendants keep pipes open, capture stops waiting after one second and marks
+output incomplete; reader threads may persist until the pipes close.
+
+The SHA-256 covers at most 64 MiB of one regular artifact file read after the
+command exits; symlinks are followed and concurrent mutation is not prevented.
+A missing or unreadable artifact is recorded as an error. The file may have
+existed before the command. An exit-code match and artifact hash are observations,
+not proof of correctness, human authorship, unassisted work, isolation, or
+verified capability. Output, arguments, paths and errors are stored in plaintext;
+do not include secrets. Old Henosis versions cannot read command-result events.
+If recording fails after execution, inspect the journal and project before retrying.

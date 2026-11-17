@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 // User-controlled text must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
@@ -24,6 +24,16 @@ fn print_event(id: usize, event: &Event) {
         Event::Proposed { goal, hypothesis, test } => println!("{}  PROPOSAL (unverified)\n  Goal: {}\n  Hypothesis: {}\n  Test: {}", id, terminal_text(goal), terminal_text(hypothesis), terminal_text(test)),
         Event::Observed { proposal, outcome } => println!("{}  OBSERVATION for {} (unverified)\n  Outcome: {}", id, proposal, terminal_text(outcome)),
         Event::Assessed { proposal, information, failure, cost } => println!("{}  ASSESSMENT for {} (subjective)\n  Information: {}  Failure: {}  Cost: {}", id, proposal, information, failure, cost),
+        Event::CommandResult { proposal, evidence } => {
+            let matched = !evidence.timed_out && evidence.exit_code == Some(evidence.expected_exit);
+            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Artifact: {}  SHA-256: {}\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout: {}\n  Stderr: {}", id, proposal,
+                terminal_text(&evidence.project), terminal_text(&evidence.program), evidence.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(),
+                evidence.expected_exit, evidence.exit_code, matched, evidence.timed_out, terminal_text(&evidence.artifact),
+                evidence.artifact_sha256.as_deref().map(terminal_text).unwrap_or_else(|| "unavailable".into()),
+                evidence.artifact_error.as_deref().map(terminal_text).unwrap_or_else(|| "none".into()),
+                evidence.output_incomplete, evidence.stdout_truncated, evidence.stderr_truncated,
+                terminal_text(&evidence.stdout), terminal_text(&evidence.stderr));
+        },
         Event::StatusChanged { proposal, closed, reason } => println!("{}  {} proposal {} (user-reported)\n  Reason: {}", id, if *closed { "CLOSED" } else { "REOPENED" }, proposal, terminal_text(reason)),
     }
 }
@@ -127,7 +137,36 @@ fn workspace() -> io::Result<()> {
                 },
                 Err(error) => eprintln!("Could not rank journal: {error}"),
             },
-            "close" | "reopen" if words.len() == 4 => match words[2].parse::<u64>() {
+            "run" if words.len() >= 7 => {
+                match (words[2].parse::<u64>(), words[5].parse::<i32>()) {
+                    (Ok(proposal), Ok(expected_exit)) => {
+                        let path = Path::new(&words[1]);
+                        let valid = henosis_crux::read(path).and_then(|events| {
+                            let index = proposal.checked_sub(1).and_then(|n| usize::try_from(n).ok());
+                            if index.and_then(|n| events.get(n)).is_some_and(|event| matches!(event, Event::Proposed { .. })) { Ok(()) }
+                            else { Err(io::Error::new(io::ErrorKind::NotFound, "proposal not found")) }
+                        });
+                        match valid {
+                            Err(error) => eprintln!("Experiment not started: {error}"),
+                            Ok(()) => {
+                                println!("Running trusted command; this is not a sandbox or capability verification.");
+                                match henosis_evidence::run(&words[3], &words[4], expected_exit, &words[6], &words[7..]) {
+                                    Ok(evidence) => {
+                                        let result = Event::CommandResult { proposal, evidence };
+                                        match henosis_crux::append(path, result.clone()) {
+                                            Ok(id) => print_event(id as usize, &result),
+                                            Err(error) => eprintln!("Command ran, but recording failed: {error}. Inspect the journal before retrying."),
+                                        }
+                                    },
+                                    Err(error) => eprintln!("Could not complete experiment: {error}. A command may have started; inspect its effects before retrying."),
+                                }
+                            },
+                        }
+                    },
+                    _ => eprintln!("Proposal ID and expected exit must be numbers."),
+                }
+            },
+            "close" | "reopen" if words.len() == 4 =>            "close" | "reopen" if words.len() == 4 => match words[2].parse::<u64>() {
                 Ok(proposal) => {
                     let event = Event::StatusChanged { proposal, closed: command == "close", reason: words[3].clone() };
                     match henosis_crux::append(Path::new(&words[1]), event) {
@@ -145,7 +184,7 @@ fn workspace() -> io::Result<()> {
                             Some(event @ Event::Proposed { .. }) => {
                                 print_event(usize::try_from(id).expect("validated proposal ID"), event);
                                 for (index, event) in events.iter().enumerate() {
-                                    if matches!(event, Event::Observed { proposal, .. } | Event::Assessed { proposal, .. } | Event::StatusChanged { proposal, .. } if *proposal == id) {
+                                    if matches!(event, Event::Observed { proposal, .. } | Event::Assessed { proposal, .. } | Event::StatusChanged { proposal, .. } | Event::CommandResult { proposal, .. } if *proposal == id) {
                                         print_event(index + 1, event);
                                     }
                                 }
