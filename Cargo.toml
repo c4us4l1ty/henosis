@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/henosis-jail", "crates/henosis-shell"]
+resolver = "2"
