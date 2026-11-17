@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +34,8 @@ fn read_file(file: &File) -> io::Result<Vec<Event>> {
     if !file.metadata()?.is_file() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal is not a regular file"));
     }
+    let mut file = file;
+    file.seek(SeekFrom::Start(0))?;
     let mut bytes = Vec::new();
     file.take(MAX_JOURNAL_BYTES + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_JOURNAL_BYTES {
@@ -66,6 +68,10 @@ pub fn read(path: &Path) -> io::Result<Vec<Event>> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal is not a regular file"));
+    }
+    fs2::FileExt::lock_shared(&file)?;
     read_file(&file)
 }
 
@@ -128,31 +134,38 @@ pub fn rank(events: &[Event]) -> io::Result<Vec<RankedProposal>> {
     Ok(ranked)
 }
 
-/// Append one event and return its one-based position. This journal is plaintext
-/// and intended for a single writer; it is not encrypted, signed, or tamper-evident.
+/// Append one event and return its one-based position. Readers and writers
+/// cooperate using advisory file locks. The journal is plaintext and is not
+/// encrypted, signed, or tamper-evident. Use only in a trusted directory.
 pub fn append(path: &Path, event: Event) -> io::Result<u64> {
-    let events = read(path)?;
-    validate(&events, &event)?;
-    let id = u64::try_from(events.len()).ok().and_then(|n| n.checked_add(1))
-        .ok_or_else(|| io::Error::other("journal is too large"))?;
+    // Reject invalid proposals before creating a new file.
+    if matches!(&event, Event::Proposed { .. }) { validate(&[], &event)?; }
     let mut record = serde_json::to_vec(&event).map_err(io::Error::other)?;
     record.push(b'\n');
-    let existing_size = match std::fs::metadata(path) {
-        Ok(metadata) => metadata.len(),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
-        Err(error) => return Err(error),
-    };
-    if existing_size.saturating_add(record.len() as u64) > MAX_JOURNAL_BYTES {
+    if record.len() as u64 > MAX_JOURNAL_BYTES {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal would exceed the size limit"));
     }
     let mut options = OpenOptions::new();
-    options.create(true).append(true);
+    options.read(true).append(true);
+    // Referencing events cannot be valid in a journal that does not exist.
+    if matches!(&event, Event::Proposed { .. }) { options.create(true); }
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+        options.mode(0o600).custom_flags(libc::O_NONBLOCK);
     }
     let mut file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal is not a regular file"));
+    }
+    fs2::FileExt::lock_exclusive(&file)?;
+    let events = read_file(&file)?;
+    validate(&events, &event)?;
+    let id = u64::try_from(events.len()).ok().and_then(|n| n.checked_add(1))
+        .ok_or_else(|| io::Error::other("journal is too large"))?;
+    if file.metadata()?.len().saturating_add(record.len() as u64) > MAX_JOURNAL_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal would exceed the size limit"));
+    }
     file.write_all(&record)?;
     file.sync_all()?;
     Ok(id)
@@ -232,6 +245,25 @@ mod tests {
         assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert!(append(&path, proposal()).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), record);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn concurrent_writers_get_distinct_ids_and_leave_a_valid_journal() {
+        use std::sync::{Arc, Barrier};
+        let path = path();
+        let barrier = Arc::new(Barrier::new(12));
+        let threads: Vec<_> = (0..12).map(|_| {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                append(&path, proposal()).unwrap()
+            })
+        }).collect();
+        let mut ids: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, (1..=12).collect::<Vec<_>>());
+        assert_eq!(read(&path).unwrap().len(), 12);
         std::fs::remove_file(path).unwrap();
     }
     #[test]

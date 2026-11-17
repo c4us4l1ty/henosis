@@ -65,11 +65,13 @@ Quote fields containing spaces. IDs are one-based event positions, so an
 observation refers to the ID of a proposal (not another observation). The file
 is created if missing; its parent directory must already exist. Each append is
 synced to disk, and malformed or incomplete journals are rejected rather than
-silently discarded. This is a **single-writer**, plaintext journal: do not use
-multiple workspaces on the same file, and do not put secrets in it. Newly created
+silently discarded. This is a plaintext journal: do not put secrets in it. Cooperating Henosis
+readers and writers use advisory file locks to serialize access; other programs
+may ignore the locks, and filesystems may not support them reliably. Newly created
 files use owner-only permissions on Unix; existing permissions are unchanged.
 It is not encrypted, signed, tamper-evident, or protected against rollback, and
-partial writes or storage failures can require manual repair. These are user
+partial writes or storage failures can require manual repair. The directory must
+not be modified concurrently, including replacing or unlinking the journal path. These are user
 assertions, not verification, automated crux selection, or proof of capability.
 
 To compare proposed tests, record subjective estimates and view the ranking:
