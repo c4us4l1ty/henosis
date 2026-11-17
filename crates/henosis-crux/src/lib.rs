@@ -63,11 +63,7 @@ fn read_file(file: &File) -> io::Result<Vec<Event>> {
 /// Invalid, oversized or truncated records are errors, never silently skipped.
 /// The parent directory must be trusted; symbolic links are followed.
 pub fn read(path: &Path) -> io::Result<Vec<Event>> {
-    let file = match open_read(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error),
-    };
+    let file = open_read(path)?;
     if !file.metadata()?.is_file() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal is not a regular file"));
     }
@@ -185,13 +181,21 @@ mod tests {
     #[test]
     fn round_trip_and_reference_validation() {
         let path = path();
-        assert!(read(&path).unwrap().is_empty());
+        assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::NotFound);
         assert!(append(&path, Event::Observed { proposal: 1, outcome: "No".into() }).is_err());
         assert_eq!(append(&path, proposal()).unwrap(), 1);
         let observation = Event::Observed { proposal: 1, outcome: "Unexpected loss".into() };
         assert_eq!(append(&path, observation.clone()).unwrap(), 2);
         assert_eq!(read(&path).unwrap(), vec![proposal(), observation]);
         assert!(append(&path, Event::Observed { proposal: 2, outcome: "x".into() }).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn empty_existing_journal_is_distinct_from_missing_journal() {
+        let path = path();
+        assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::NotFound);
+        std::fs::write(&path, b"").unwrap();
+        assert!(read(&path).unwrap().is_empty());
         std::fs::remove_file(path).unwrap();
     }
     #[test]
