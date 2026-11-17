@@ -5,8 +5,8 @@ capability. The product vision and staged engineering plan live in [`vision/`](v
 
 ## Current state
 
-This repository currently contains only the first piece of the Block 1 process
-adapter: an interactive process workspace and a reusable `LauncherSpec`. The launcher
+This repository contains an early Block 1 process adapter: an interactive
+process workspace and a reusable `LauncherSpec`, plus an experimental crux journal. The launcher
 starts an executable with an **empty environment**, so credentials in the parent
 environment are not automatically passed to it. Arguments are passed directly,
 not interpreted by a shell.
@@ -49,3 +49,70 @@ untrusted software with it or assume it protects secrets. There is no secure vau
 proxy, PID attestation, DLP, cleanroom, desktop UI, or capability verification
 yet. No performance or isolation claims have been validated. These remain future
 work, not features implied by the crate names or vision documents.
+
+## Experimental crux journal
+
+The interactive workspace can record a goal, a suspected bottleneck, a test,
+and subsequent observations in a local JSON-lines file:
+
+```text
+propose ./crux.jsonl "Improve the prototype" "Heat loss is the bottleneck" "Measure heat loss under load"
+observe ./crux.jsonl 1 "Loss was lower than expected"
+journal ./crux.jsonl
+```
+
+Quote fields containing spaces. IDs are one-based event positions, so an
+observation refers to the ID of a proposal (not another observation). The file
+is created by `propose` if missing; its parent directory must already exist.
+Reading a missing journal reports an error instead of showing an empty history. Each append is
+synced to disk, and malformed or incomplete journals are rejected rather than
+silently discarded. Unknown event types or fields are rejected rather than
+silently misinterpreted; newer journal formats may require a newer Henosis.
+This is a plaintext journal: do not put secrets in it. Cooperating Henosis
+readers and writers use advisory file locks to serialize access; other programs
+may ignore the locks, and filesystems may not support them reliably. Newly created
+files use owner-only permissions on Unix; existing permissions are unchanged.
+It is not encrypted, signed, tamper-evident, or protected against rollback, and
+partial writes or storage failures can require manual repair. The directory must
+not be modified concurrently, including replacing or unlinking the journal path. These are user
+assertions, not verification, automated crux selection, or proof of capability.
+
+To compare proposed tests, record subjective estimates and view the ranking:
+
+```text
+assess ./crux.jsonl 1 5 4 2
+rank ./crux.jsonl
+```
+
+The three integer estimates are **information**, **fatal-failure concern**, and
+**cost**, each from 1 (low) to 5 (high). The ranking sorts by
+`information × failure / cost`, highest first; ties go to the earlier proposal.
+This is a simple heuristic applied to ordinal estimates, not a calibrated
+probability, measurement of information gain, or proof of the best experiment.
+The latest assessment of each proposal is used; unassessed proposals are omitted.
+Observations do not automatically close or change a proposal's rank: reassess it
+as your understanding changes or explicitly close it. The full history remains visible with `journal`.
+Older journals containing only proposals and observations remain readable; older
+versions of Henosis cannot read the new assessment records.
+
+Journals are limited to 8 MiB and must be regular files in a trusted directory.
+On Unix, opening a FIFO is nonblocking and rejected. Symbolic links are followed;
+this journal does not defend against hostile changes to its directory or files.
+
+Use `show ./crux.jsonl 1` to inspect one proposal and its assessment and
+observation history in order. Journal text is escaped when printed if it
+contains terminal control characters.
+
+When a test is complete or no longer useful, remove it from the active ranking
+without deleting its history:
+
+```text
+close ./crux.jsonl 1 "Experiment complete"
+reopen ./crux.jsonl 1 "New evidence merits another test"
+```
+
+Proposals start open. The latest status change determines whether a proposal
+appears in `rank`; reopening retains its latest assessment. Status changes are
+user-reported, may be repeated, and do not verify the result. Observations and
+assessments can still be recorded for closed proposals. Older versions cannot
+read status-change records.
