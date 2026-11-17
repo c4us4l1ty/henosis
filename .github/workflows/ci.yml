@@ -3,6 +3,7 @@ on: [push, pull_request]
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -14,9 +15,13 @@ jobs:
       - if: runner.os == 'Linux'
         run: |
           cargo generate-lockfile
-          echo "::notice title=CargoLock::$(base64 -w 0 Cargo.lock)"
+          i=0
+          while IFS= read -r chunk; do
+            printf "::notice title=CargoLock%03d::%s\n" "$i" "$chunk"
+            i=$((i+1))
+          done < <(base64 -w 0 Cargo.lock | fold -w 3000)
       - if: runner.os == 'Linux'
-        run: cargo test --workspace > ci-test.log 2>&1 || { echo "::error title=TestOutput::$(base64 -w 0 ci-test.log)"; exit 1; }
+        run: cargo test --workspace --color never > ci-test.log 2>&1 || { echo "::error title=TestOutput::$(tail -c 2800 ci-test.log | base64 -w 0)"; exit 1; }
       - if: runner.os != 'Linux'
         run: cargo test --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings
