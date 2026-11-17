@@ -11,5 +11,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo test --workspace
+      - if: runner.os == 'Linux'
+        run: |
+          cargo generate-lockfile
+          echo "::notice title=CargoLock::$(base64 -w 0 Cargo.lock)"
+      - if: runner.os == 'Linux'
+        run: cargo test --workspace > ci-test.log 2>&1 || { echo "::error title=TestOutput::$(base64 -w 0 ci-test.log)"; exit 1; }
+      - if: runner.os != 'Linux'
+        run: cargo test --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings
