@@ -137,17 +137,42 @@ pub fn rank(events: &[Event]) -> io::Result<Vec<RankedProposal>> {
     Ok(ranked)
 }
 
+// Bound serialized output while producing it, including JSON escaping. Checking
+// only after `to_vec` could allocate far beyond the documented journal limit.
+struct RecordBuffer {
+    bytes: Vec<u8>,
+    exceeded: bool,
+}
+
+impl Write for RecordBuffer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if buf.len() > (MAX_JOURNAL_BYTES as usize - 1).saturating_sub(self.bytes.len()) {
+            self.exceeded = true;
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal would exceed the size limit"));
+        }
+        self.bytes.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+}
+
 /// Append one event and return its one-based position. Readers and writers
 /// cooperate using advisory file locks. The journal is plaintext and is not
 /// encrypted, signed, or tamper-evident. Use only in a trusted directory.
 pub fn append(path: &Path, event: Event) -> io::Result<u64> {
     // Reject invalid proposals before creating a new file.
     if matches!(&event, Event::Proposed { .. }) { validate(&[], &event)?; }
-    let mut record = serde_json::to_vec(&event).map_err(io::Error::other)?;
-    record.push(b'\n');
-    if record.len() as u64 > MAX_JOURNAL_BYTES {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal would exceed the size limit"));
+    let mut buffer = RecordBuffer { bytes: Vec::new(), exceeded: false };
+    if let Err(error) = serde_json::to_writer(&mut buffer, &event) {
+        return Err(if buffer.exceeded {
+            io::Error::new(io::ErrorKind::InvalidInput, "journal would exceed the size limit")
+        } else {
+            io::Error::other(error)
+        });
     }
+    let mut record = buffer.bytes;
+    record.push(b'\n');
     let mut options = OpenOptions::new();
     options.read(true).append(true);
     // Referencing events cannot be valid in a journal that does not exist.
@@ -315,6 +340,16 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         let huge = Event::Proposed { goal: "x".repeat(MAX_JOURNAL_BYTES as usize), hypothesis: "h".into(), test: "t".into() };
         assert!(append(&path, huge).is_err());
+        assert!(!path.exists());
+    }
+    #[test]
+    fn json_escaping_cannot_bypass_serialized_size_limit() {
+        let path = path();
+        let huge = Event::Proposed {
+            goal: "\0".repeat(MAX_JOURNAL_BYTES as usize / 5),
+            hypothesis: "h".into(), test: "t".into(),
+        };
+        assert_eq!(append(&path, huge).unwrap_err().kind(), io::ErrorKind::InvalidInput);
         assert!(!path.exists());
     }
     #[cfg(unix)]
