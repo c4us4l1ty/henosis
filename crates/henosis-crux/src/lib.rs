@@ -8,7 +8,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
     Proposed { goal: String, hypothesis: String, test: String },
     Observed { proposal: u64, outcome: String },
@@ -264,6 +264,17 @@ mod tests {
         assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert!(append(&path, proposal()).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"{broken\n");
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn unknown_fields_are_not_silently_ignored() {
+        let path = path();
+        let bytes = br#"{"type":"proposed","goal":"g","hypothesis":"h","test":"t","future_semantics":true}
+"#;
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(append(&path, proposal()).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
         std::fs::remove_file(path).unwrap();
     }
     #[test]

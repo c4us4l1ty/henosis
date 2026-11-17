@@ -66,7 +66,9 @@ observation refers to the ID of a proposal (not another observation). The file
 is created by `propose` if missing; its parent directory must already exist.
 Reading a missing journal reports an error instead of showing an empty history. Each append is
 synced to disk, and malformed or incomplete journals are rejected rather than
-silently discarded. This is a plaintext journal: do not put secrets in it. Cooperating Henosis
+silently discarded. Unknown event types or fields are rejected rather than
+silently misinterpreted; newer journal formats may require a newer Henosis.
+This is a plaintext journal: do not put secrets in it. Cooperating Henosis
 readers and writers use advisory file locks to serialize access; other programs
 may ignore the locks, and filesystems may not support them reliably. Newly created
 files use owner-only permissions on Unix; existing permissions are unchanged.
