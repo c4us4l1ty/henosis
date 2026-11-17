@@ -1,11 +1,12 @@
 #![deny(unsafe_code)]
 
 use henosis_jail::{LauncherSpec, Supervisor};
+use henosis_crux::Event;
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);
@@ -65,6 +66,33 @@ fn workspace() -> io::Result<()> {
                     Ok(id) => println!("Started process {id}."),
                     Err(error) => eprintln!("Could not launch process: {error}"),
                 }
+            },
+            "propose" if words.len() == 5 => {
+                let event = Event::Proposed { goal: words[2].clone(), hypothesis: words[3].clone(), test: words[4].clone() };
+                match henosis_crux::append(Path::new(&words[1]), event) {
+                    Ok(id) => println!("Recorded proposal {id} (unverified)."),
+                    Err(error) => eprintln!("Could not record proposal: {error}"),
+                }
+            },
+            "observe" if words.len() == 4 => match words[2].parse::<u64>() {
+                Ok(proposal) => {
+                    let event = Event::Observed { proposal, outcome: words[3].clone() };
+                    match henosis_crux::append(Path::new(&words[1]), event) {
+                        Ok(id) => println!("Recorded observation {id} (unverified)."),
+                        Err(error) => eprintln!("Could not record observation: {error}"),
+                    }
+                },
+                Err(_) => eprintln!("Proposal ID must be a number."),
+            },
+            "journal" if words.len() == 2 => match henosis_crux::read(Path::new(&words[1])) {
+                Ok(events) if events.is_empty() => println!("No events."),
+                Ok(events) => for (index, event) in events.iter().enumerate() {
+                    match event {
+                        Event::Proposed { goal, hypothesis, test } => println!("{}  PROPOSAL (unverified)\n  Goal: {}\n  Hypothesis: {}\n  Test: {}", index + 1, goal, hypothesis, test),
+                        Event::Observed { proposal, outcome } => println!("{}  OBSERVATION for {} (unverified)\n  Outcome: {}", index + 1, proposal, outcome),
+                    }
+                },
+                Err(error) => eprintln!("Could not read journal: {error}"),
             },
             "stop" if words.len() == 2 => match words[1].parse::<u64>() {
                 Ok(id) => match supervisor.stop(id) {

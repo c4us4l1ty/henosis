@@ -5,8 +5,8 @@ capability. The product vision and staged engineering plan live in [`vision/`](v
 
 ## Current state
 
-This repository currently contains only the first piece of the Block 1 process
-adapter: an interactive process workspace and a reusable `LauncherSpec`. The launcher
+This repository contains an early Block 1 process adapter: an interactive
+process workspace and a reusable `LauncherSpec`, plus an experimental crux journal. The launcher
 starts an executable with an **empty environment**, so credentials in the parent
 environment are not automatically passed to it. Arguments are passed directly,
 not interpreted by a shell.
@@ -49,3 +49,25 @@ untrusted software with it or assume it protects secrets. There is no secure vau
 proxy, PID attestation, DLP, cleanroom, desktop UI, or capability verification
 yet. No performance or isolation claims have been validated. These remain future
 work, not features implied by the crate names or vision documents.
+
+## Experimental crux journal
+
+The interactive workspace can record a goal, a suspected bottleneck, a test,
+and subsequent observations in a local JSON-lines file:
+
+```text
+propose ./crux.jsonl "Improve the prototype" "Heat loss is the bottleneck" "Measure heat loss under load"
+observe ./crux.jsonl 1 "Loss was lower than expected"
+journal ./crux.jsonl
+```
+
+Quote fields containing spaces. IDs are one-based event positions, so an
+observation refers to the ID of a proposal (not another observation). The file
+is created if missing; its parent directory must already exist. Each append is
+synced to disk, and malformed or incomplete journals are rejected rather than
+silently discarded. This is a **single-writer**, plaintext journal: do not use
+multiple workspaces on the same file, and do not put secrets in it. Newly created
+files use owner-only permissions on Unix; existing permissions are unchanged.
+It is not encrypted, signed, tamper-evident, or protected against rollback, and
+partial writes or storage failures can require manual repair. These are user
+assertions, not verification, automated crux selection, or proof of capability.
