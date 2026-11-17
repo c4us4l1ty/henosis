@@ -3,8 +3,8 @@
 //! Records and estimates are user assertions, not verified capabilities.
 
 use serde::{Deserialize, Serialize};
-use std::fs::OpenOptions;
-use std::io::{self, BufRead, BufReader, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -15,25 +15,38 @@ pub enum Event {
     Assessed { proposal: u64, information: u8, failure: u8, cost: u8 },
 }
 
-/// Read the entire append-only journal. Proposal IDs are one-based event positions.
-/// Invalid or truncated records are errors, never silently skipped.
-pub fn read(path: &Path) -> io::Result<Vec<Event>> {
-    let file = match OpenOptions::new().read(true).open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error),
-    };
+/// Maximum journal size accepted by this experimental implementation.
+pub const MAX_JOURNAL_BYTES: u64 = 8 * 1024 * 1024;
+
+fn open_read(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    // Avoid blocking indefinitely while opening a FIFO without a writer.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    options.open(path)
+}
+
+fn read_file(file: &File) -> io::Result<Vec<Event>> {
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal is not a regular file"));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_JOURNAL_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_JOURNAL_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "journal exceeds the size limit"));
+    }
+    if !bytes.is_empty() && !bytes.ends_with(b"\n") {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "truncated journal line"));
+    }
     let mut events = Vec::new();
-    let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    loop {
-        line.clear();
-        if reader.read_line(&mut line)? == 0 { break; }
-        let number = events.len() + 1;
-        if !line.ends_with('\n') {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("truncated journal line {number}")));
-        }
-        let event: Event = serde_json::from_str(&line).map_err(|error| {
+    for (index, line) in bytes.strip_suffix(b"\n").unwrap_or(&[]).split(|byte| *byte == b'\n').enumerate() {
+        if bytes.is_empty() { break; }
+        let number = index + 1;
+        let event: Event = serde_json::from_slice(line).map_err(|error| {
             io::Error::new(io::ErrorKind::InvalidData, format!("invalid journal line {number}: {error}"))
         })?;
         validate(&events, &event).map_err(|error| {
@@ -42,6 +55,18 @@ pub fn read(path: &Path) -> io::Result<Vec<Event>> {
         events.push(event);
     }
     Ok(events)
+}
+
+/// Read the entire append-only journal. Proposal IDs are one-based event positions.
+/// Invalid, oversized or truncated records are errors, never silently skipped.
+/// The parent directory must be trusted; symbolic links are followed.
+pub fn read(path: &Path) -> io::Result<Vec<Event>> {
+    let file = match open_read(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    read_file(&file)
 }
 
 fn validate(events: &[Event], event: &Event) -> io::Result<()> {
@@ -112,6 +137,14 @@ pub fn append(path: &Path, event: Event) -> io::Result<u64> {
         .ok_or_else(|| io::Error::other("journal is too large"))?;
     let mut record = serde_json::to_vec(&event).map_err(io::Error::other)?;
     record.push(b'\n');
+    let existing_size = match std::fs::metadata(path) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(error),
+    };
+    if existing_size.saturating_add(record.len() as u64) > MAX_JOURNAL_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "journal would exceed the size limit"));
+    }
     let mut options = OpenOptions::new();
     options.create(true).append(true);
     #[cfg(unix)]
@@ -199,6 +232,26 @@ mod tests {
         assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert!(append(&path, proposal()).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), record);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn oversized_journals_and_appends_are_rejected() {
+        let path = path();
+        std::fs::write(&path, vec![b'x'; MAX_JOURNAL_BYTES as usize + 1]).unwrap();
+        assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(append(&path, proposal()).is_err());
+        std::fs::remove_file(&path).unwrap();
+        let huge = Event::Proposed { goal: "x".repeat(MAX_JOURNAL_BYTES as usize), hypothesis: "h".into(), test: "t".into() };
+        assert!(append(&path, huge).is_err());
+        assert!(!path.exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn fifo_is_rejected_without_waiting_for_a_writer() {
+        let path = path();
+        assert!(std::process::Command::new("mkfifo").arg(&path).status().unwrap().success());
+        assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert!(append(&path, proposal()).is_err());
         std::fs::remove_file(path).unwrap();
     }
     #[test]

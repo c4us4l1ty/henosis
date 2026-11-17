@@ -89,3 +89,7 @@ Observations do not automatically close or change a proposal's rank: reassess it
 as your understanding changes. The full history remains visible with `journal`.
 Older journals containing only proposals and observations remain readable; older
 versions of Henosis cannot read the new assessment records.
+
+Journals are limited to 8 MiB and must be regular files in a trusted directory.
+On Unix, opening a FIFO is nonblocking and rejected. Symbolic links are followed;
+this journal does not defend against hostile changes to its directory or files.
