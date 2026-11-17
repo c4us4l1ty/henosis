@@ -33,8 +33,11 @@ recovery, and a deterministic Henosis-specific Ed25519 identity. It is not wired
 into the workspace UI. The derivation uses HKDF-SHA256 with salt
 `henosis.identity.v1` and info `ed25519.signing-key`, and is not a BIP-32/SLIP-10
 wallet. A BIP-39 passphrase is optional but must be retained exactly for recovery.
-Do not use these early primitives with existing wallets, production secrets, or
-funds: there is no encrypted storage, memory locking, or audited secret handling.
+An experimental library-only envelope can encrypt bounded bytes with Argon2id
+and XChaCha20-Poly1305; its versioned header is authenticated. It does not write
+files or integrate with the shell, and cannot detect rollback. Do not use these
+early, unaudited primitives with existing wallets, production secrets, or funds:
+there is no memory locking, trusted display, or audited secret handling.
 Signatures alone do not establish human authorship or verified capability.
 
 **Security limitation:** this is a process launcher, not a jail. A child can
