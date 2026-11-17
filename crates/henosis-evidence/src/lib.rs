@@ -86,6 +86,10 @@ fn artifact_hash(path: &Path) -> io::Result<String> {
 /// timeout kills the direct child only. Descendants are not contained.
 /// An artifact hash is an observation of bytes read after exit, not attestation.
 pub fn run(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String]) -> io::Result<Evidence> {
+    run_inner(project, artifact, expected_exit, program, arguments, (RUN_LIMIT, DRAIN_LIMIT))
+}
+
+fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], limits: (Duration, Duration)) -> io::Result<Evidence> {
     let directory = Path::new(project);
     let executable = Path::new(program);
     let artifact_path = Path::new(artifact);
@@ -100,7 +104,7 @@ pub fn run(project: &str, artifact: &str, expected_exit: i32, program: &str, arg
     let (send, recv) = mpsc::channel();
     drain(child.stdout.take().expect("piped stdout"), Arc::clone(&stdout), send.clone());
     drain(child.stderr.take().expect("piped stderr"), Arc::clone(&stderr), send);
-    let deadline = Instant::now() + RUN_LIMIT;
+    let deadline = Instant::now() + limits.0;
     let (status, timed_out) = loop {
         match child.try_wait() {
             Ok(Some(status)) => break (status, false),
@@ -117,7 +121,7 @@ pub fn run(project: &str, artifact: &str, expected_exit: i32, program: &str, arg
     };
     // A descendant can keep inherited pipes open after the direct child exits.
     // Do not wait forever; detached readers may persist until those pipes close.
-    let deadline = Instant::now() + DRAIN_LIMIT;
+    let deadline = Instant::now() + limits.1;
     let mut finished = 0;
     while finished < 2 {
         match recv.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
@@ -164,6 +168,23 @@ mod tests {
         assert!(result.stdout_truncated);
         assert!(result.artifact_sha256.is_none());
         assert!(result.artifact_error.is_some());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn timeout_reaps_direct_child_and_records_missing_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = run_inner(dir.path().to_str().unwrap(), "missing", 0, "/bin/sleep", &["10".into()], (Duration::from_millis(100), Duration::from_secs(1))).unwrap();
+        assert!(result.timed_out);
+        assert_ne!(result.exit_code, Some(0));
+        assert!(result.artifact_error.is_some());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn inherited_pipes_do_not_block_the_runner_indefinitely() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = run_inner(dir.path().to_str().unwrap(), "missing", 0, "/bin/sh", &["-c".into(), "/bin/sleep 2 &".into()], (Duration::from_secs(5), Duration::from_millis(100))).unwrap();
+        assert_eq!(result.exit_code, Some(0));
+        assert!(result.output_incomplete);
     }
     #[test]
     fn rejects_unsafe_paths_before_execution() {
