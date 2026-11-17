@@ -366,6 +366,41 @@ mod tests {
         assert_eq!(backup(&source, &destination).unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert!(!destination.exists());
     }
+    #[test]
+    fn racing_backups_never_clobber_or_mix_snapshots() {
+        use std::sync::{Arc, Barrier};
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        let destination = dir.path().join("backup");
+        append(&first, proposal()).unwrap();
+        append(&second, proposal()).unwrap();
+        append(&second, Event::Observed { proposal: 1, outcome: "second".into() }).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let threads: Vec<_> = [first.clone(), second.clone()].into_iter().map(|source| {
+            let destination = destination.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                backup(&source, &destination)
+            })
+        }).collect();
+        let results: Vec<_> = threads.into_iter().map(|thread| thread.join().unwrap()).collect();
+        assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|r| matches!(r, Err(e) if e.kind() == io::ErrorKind::AlreadyExists)).count(), 1);
+        let bytes = std::fs::read(&destination).unwrap();
+        assert!(bytes == std::fs::read(first).unwrap() || bytes == std::fs::read(second).unwrap());
+        assert!(read(&destination).is_ok());
+    }
+    #[test]
+    fn empty_journal_can_be_backed_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("journal");
+        let destination = dir.path().join("backup");
+        std::fs::write(&source, b"").unwrap();
+        assert_eq!(backup(&source, &destination).unwrap(), 0);
+        assert!(read(&destination).unwrap().is_empty());
+    }
     #[cfg(unix)]
     #[test]
     fn backup_does_not_replace_symlink_or_its_target() {
@@ -380,6 +415,20 @@ mod tests {
         assert_eq!(backup(&source, &destination).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
         assert!(std::fs::symlink_metadata(&destination).unwrap().file_type().is_symlink());
         assert_eq!(std::fs::read(target).unwrap(), b"untouched");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn backup_does_not_follow_dangling_destination_symlink() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("journal");
+        let destination = dir.path().join("backup-link");
+        let target = dir.path().join("missing-target");
+        append(&source, proposal()).unwrap();
+        symlink(&target, &destination).unwrap();
+        assert_eq!(backup(&source, &destination).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert!(std::fs::symlink_metadata(destination).unwrap().file_type().is_symlink());
+        assert!(!target.exists());
     }
     #[cfg(unix)]
     #[test]
