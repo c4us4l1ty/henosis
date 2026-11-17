@@ -13,6 +13,7 @@ pub enum Event {
     Proposed { goal: String, hypothesis: String, test: String },
     Observed { proposal: u64, outcome: String },
     Assessed { proposal: u64, information: u8, failure: u8, cost: u8 },
+    StatusChanged { proposal: u64, closed: bool, reason: String },
 }
 
 /// Maximum journal size accepted by this experimental implementation.
@@ -80,6 +81,7 @@ fn validate(events: &[Event], event: &Event) -> io::Result<()> {
     let valid = match event {
         Event::Proposed { goal, hypothesis, test } => nonempty(goal) && nonempty(hypothesis) && nonempty(test),
         Event::Observed { proposal, outcome } => nonempty(outcome) && is_proposal(proposal),
+        Event::StatusChanged { proposal, reason, .. } => nonempty(reason) && is_proposal(proposal),
         Event::Assessed { proposal, information, failure, cost } => {
             is_proposal(proposal) && [*information, *failure, *cost].iter().all(|n| (1..=5).contains(n))
         }
@@ -101,15 +103,20 @@ pub struct RankedProposal {
 
 /// Rank assessed proposals by information × failure / cost, highest first.
 /// Estimates are ordinal heuristics, not probabilities or measured information.
-/// Ties use proposal ID ascending. Observations do not remove proposals.
+/// Ties use proposal ID ascending. Closed proposals are excluded; observations
+/// alone do not close proposals. The latest status event determines the status.
 /// Rejects invalid event sequences, including references to future proposals.
 pub fn rank(events: &[Event]) -> io::Result<Vec<RankedProposal>> {
     use std::collections::BTreeMap;
     let mut assessments = BTreeMap::new();
+    let mut statuses = BTreeMap::new();
     for (index, event) in events.iter().enumerate() {
         validate(&events[..index], event)?;
         if let Event::Assessed { proposal, information, failure, cost } = event {
             assessments.insert(*proposal, (*information, *failure, *cost));
+        }
+        if let Event::StatusChanged { proposal, closed, .. } = event {
+            statuses.insert(*proposal, *closed);
         }
     }
     let mut ranked = Vec::new();
@@ -117,7 +124,7 @@ pub fn rank(events: &[Event]) -> io::Result<Vec<RankedProposal>> {
         if let Event::Proposed { goal, hypothesis, test } = event {
             let id = u64::try_from(index).ok().and_then(|n| n.checked_add(1))
                 .ok_or_else(|| io::Error::other("journal is too large"))?;
-            if let Some(&(information, failure, cost)) = assessments.get(&id) {
+            if let Some(&(information, failure, cost)) = assessments.get(&id).filter(|_| !statuses.get(&id).copied().unwrap_or(false)) {
                 ranked.push(RankedProposal { id, goal: goal.clone(), hypothesis: hypothesis.clone(), test: test.clone(), information, failure, cost });
             }
         }
@@ -213,6 +220,24 @@ mod tests {
         let mut changed = events;
         changed.push(Event::Assessed { proposal: 2, information: 5, failure: 5, cost: 2 });
         assert_eq!(rank(&changed).unwrap()[0].id, 2);
+    }
+    #[test]
+    fn closing_excludes_and_reopening_restores_assessed_proposal() {
+        let path = path();
+        append(&path, proposal()).unwrap();
+        append(&path, Event::Assessed { proposal: 1, information: 5, failure: 2, cost: 1 }).unwrap();
+        let closed = Event::StatusChanged { proposal: 1, closed: true, reason: "test complete".into() };
+        append(&path, closed).unwrap();
+        assert!(rank(&read(&path).unwrap()).unwrap().is_empty());
+        let reopened = Event::StatusChanged { proposal: 1, closed: false, reason: "new evidence".into() };
+        append(&path, reopened).unwrap();
+        let ranked = rank(&read(&path).unwrap()).unwrap();
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].id, 1);
+        assert_eq!(ranked[0].information, 5);
+        assert!(append(&path, Event::StatusChanged { proposal: 2, closed: true, reason: "x".into() }).is_err());
+        assert!(append(&path, Event::StatusChanged { proposal: 1, closed: true, reason: " ".into() }).is_err());
+        std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn assessment_validation_applies_to_read_append_and_rank() {

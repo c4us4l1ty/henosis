@@ -89,7 +89,7 @@ This is a simple heuristic applied to ordinal estimates, not a calibrated
 probability, measurement of information gain, or proof of the best experiment.
 The latest assessment of each proposal is used; unassessed proposals are omitted.
 Observations do not automatically close or change a proposal's rank: reassess it
-as your understanding changes. The full history remains visible with `journal`.
+as your understanding changes or explicitly close it. The full history remains visible with `journal`.
 Older journals containing only proposals and observations remain readable; older
 versions of Henosis cannot read the new assessment records.
 
@@ -100,3 +100,17 @@ this journal does not defend against hostile changes to its directory or files.
 Use `show ./crux.jsonl 1` to inspect one proposal and its assessment and
 observation history in order. Journal text is escaped when printed if it
 contains terminal control characters.
+
+When a test is complete or no longer useful, remove it from the active ranking
+without deleting its history:
+
+```text
+close ./crux.jsonl 1 "Experiment complete"
+reopen ./crux.jsonl 1 "New evidence merits another test"
+```
+
+Proposals start open. The latest status change determines whether a proposal
+appears in `rank`; reopening retains its latest assessment. Status changes are
+user-reported, may be repeated, and do not verify the result. Observations and
+assessments can still be recorded for closed proposals. Older versions cannot
+read status-change records.
