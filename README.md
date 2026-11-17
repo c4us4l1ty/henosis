@@ -28,9 +28,18 @@ Use an absolute path to the executable. Programs that rely on `PATH`, `HOME`, or
 other environment variables may not work from the CLI yet. Library callers can
 explicitly add non-secret variables with `LauncherSpec::env`.
 
+An experimental `henosis-vault` library now provides 12-word BIP-39 generation,
+recovery, and a deterministic Henosis-specific Ed25519 identity. It is not wired
+into the workspace UI. The derivation uses HKDF-SHA256 with salt
+`henosis.identity.v1` and info `ed25519.signing-key`, and is not a BIP-32/SLIP-10
+wallet. A BIP-39 passphrase is optional but must be retained exactly for recovery.
+Do not use these early primitives with existing wallets, production secrets, or
+funds: there is no encrypted storage, memory locking, or audited secret handling.
+Signatures alone do not establish human authorship or verified capability.
+
 **Security limitation:** this is a process launcher, not a jail. A child can
 still read accessible files, inspect processes, and use the network. Do not run
-untrusted software with it or assume it protects secrets. There is no vault,
+untrusted software with it or assume it protects secrets. There is no secure vault,
 proxy, PID attestation, DLP, cleanroom, desktop UI, or capability verification
 yet. No performance or isolation claims have been validated. These remain future
 work, not features implied by the crate names or vision documents.
