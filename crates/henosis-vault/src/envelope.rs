@@ -1,4 +1,4 @@
-//! Versioned password-encrypted bytes; no filesystem persistence is provided.
+//! Versioned password-encrypted bytes.
 //!
 //! V1 is `magic (8) || salt (16) || nonce (24) || ciphertext || tag (16)`.
 //! The entire header is authenticated. The key is derived with Argon2id v1.3,
@@ -19,8 +19,8 @@ use zeroize::Zeroizing;
 const MAGIC: &[u8; 8] = b"HNVLT\x01\r\n";
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 24;
-const HEADER_LEN: usize = MAGIC.len() + SALT_LEN + NONCE_LEN;
-const TAG_LEN: usize = 16;
+pub(crate) const HEADER_LEN: usize = MAGIC.len() + SALT_LEN + NONCE_LEN;
+pub(crate) const TAG_LEN: usize = 16;
 /// Maximum bytes accepted as plaintext by this format.
 pub const MAX_PLAINTEXT_LEN: usize = 1024 * 1024;
 const MAX_PASSWORD_LEN: usize = 1024;

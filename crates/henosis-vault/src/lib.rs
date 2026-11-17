@@ -1,11 +1,12 @@
 #![deny(unsafe_code)]
 //! Early identity primitives, **not a secure vault**.
 //!
-//! There is no file storage, memory locking, process isolation, or trusted
+//! There is no memory locking, process isolation, or trusted
 //! display. Avoid using real funds, production credentials, or a mnemonic used
 //! elsewhere. Mnemonics and passphrases are still exposed to the caller and OS.
 
 pub mod envelope;
+pub mod storage;
 
 use bip39::{Language, Mnemonic};
 use ed25519_dalek::{Signer, SigningKey};

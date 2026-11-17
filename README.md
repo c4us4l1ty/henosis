@@ -34,8 +34,11 @@ into the workspace UI. The derivation uses HKDF-SHA256 with salt
 `henosis.identity.v1` and info `ed25519.signing-key`, and is not a BIP-32/SLIP-10
 wallet. A BIP-39 passphrase is optional but must be retained exactly for recovery.
 An experimental library-only envelope can encrypt bounded bytes with Argon2id
-and XChaCha20-Poly1305; its versioned header is authenticated. It does not write
-files or integrate with the shell, and cannot detect rollback. Do not use these
+and XChaCha20-Poly1305; its versioned header is authenticated. Create-only file
+storage writes the encrypted envelope to a temporary file and publishes it without
+overwriting existing files. It requires a trusted directory, has no update or
+rollback detection, and is not integrated with the shell. Windows permissions
+depend on the directory ACL, and directory durability is not guaranteed. Do not use these
 early, unaudited primitives with existing wallets, production secrets, or funds:
 there is no memory locking, trusted display, or audited secret handling.
 Signatures alone do not establish human authorship or verified capability.
