@@ -166,7 +166,7 @@ fn workspace() -> io::Result<()> {
                     _ => eprintln!("Proposal ID and expected exit must be numbers."),
                 }
             },
-            "close" | "reopen" if words.len() == 4 =>            "close" | "reopen" if words.len() == 4 => match words[2].parse::<u64>() {
+            "close" | "reopen" if words.len() == 4 => match words[2].parse::<u64>() {
                 Ok(proposal) => {
                     let event = Event::StatusChanged { proposal, closed: command == "close", reason: words[3].clone() };
                     match henosis_crux::append(Path::new(&words[1]), event) {
