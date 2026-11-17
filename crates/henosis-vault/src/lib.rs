@@ -107,6 +107,19 @@ mod tests {
     }
 
     #[test]
+    fn identity_v1_recovery_vector_is_stable() {
+        // Independently calculated from the public BIP-39 TREZOR test vector
+        // using PBKDF2-HMAC-SHA512, HKDF-SHA256, and Ed25519.
+        let identity = Identity::recover(PHRASE, "TREZOR").unwrap();
+        assert_eq!(identity.public_key(), [
+            0x69, 0x61, 0xd8, 0x78, 0xb0, 0x3a, 0x53, 0xf1,
+            0xf0, 0xc9, 0x12, 0xfb, 0x4e, 0x04, 0x30, 0xe8,
+            0xb1, 0x87, 0x40, 0xff, 0xdd, 0xbd, 0x49, 0x44,
+            0xde, 0x4a, 0xee, 0x85, 0x28, 0xda, 0xd9, 0x58,
+        ]);
+    }
+
+    #[test]
     fn signatures_verify_and_reject_modified_messages() {
         let identity = Identity::recover(PHRASE, "").unwrap();
         let key = VerifyingKey::from_bytes(&identity.public_key()).unwrap();
