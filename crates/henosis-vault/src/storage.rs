@@ -59,10 +59,23 @@ pub fn create(path: &Path, password: &[u8], plaintext: &[u8]) -> Result<(), Stor
     Ok(())
 }
 
+// Opening a FIFO for reading ordinarily blocks before we can inspect its type.
+// O_NONBLOCK allows fstat to reject FIFOs even when no writer is present.
+#[cfg(unix)]
+fn open_for_read(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path)
+}
+
+#[cfg(not(unix))]
+fn open_for_read(path: &Path) -> io::Result<File> {
+    File::open(path)
+}
+
 /// Read and decrypt a regular file, with a bound applied before allocation.
 /// A trusted directory is required: the path may follow symbolic links.
 pub fn open(path: &Path, password: &[u8]) -> Result<Zeroizing<Vec<u8>>, StorageError> {
-    let file = File::open(path)?;
+    let file = open_for_read(path)?;
     if !file.metadata()?.is_file() {
         return Err(StorageError::Io(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")));
     }
@@ -97,6 +110,37 @@ mod tests {
         let path = directory.path().join("large");
         fs::write(&path, vec![0u8; MAX_ENVELOPE_LEN + 1]).unwrap();
         assert!(matches!(open(&path, b"password"), Err(StorageError::Envelope(EnvelopeError::TooLarge))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opening_a_fifo_without_a_writer_is_rejected() {
+        use std::process::Command;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fifo");
+        assert!(Command::new("mkfifo").arg(&path).status().unwrap().success());
+        assert!(matches!(open(&path, b"password"), Err(StorageError::Io(error)) if error.kind() == io::ErrorKind::InvalidInput));
+    }
+
+    #[test]
+    fn competing_creations_do_not_overwrite() {
+        use std::sync::{Arc, Barrier};
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("vault");
+        let barrier = Arc::new(Barrier::new(2));
+        let threads: Vec<_> = [b"first".as_slice(), b"second".as_slice()].into_iter().map(|message| {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                create(&path, b"test password", message)
+            })
+        }).collect();
+        let results: Vec<_> = threads.into_iter().map(|thread| thread.join().unwrap()).collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|result| matches!(result, Err(StorageError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists)).count(), 1);
+        let value = open(&path, b"test password").unwrap();
+        assert!(&value[..] == b"first" || &value[..] == b"second");
     }
 
     #[cfg(unix)]
