@@ -57,3 +57,28 @@ fn journal_content_cannot_inject_terminal_control_sequences() {
     assert!(stdout.contains(r"safe\u{1b}[2J"), "{stdout}");
     assert!(stdout.contains(r"line\nnext"), "{stdout}");
 }
+
+#[test]
+fn show_selects_only_the_requested_proposal_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("crux.jsonl");
+    for goal in ["first goal", "second goal"] {
+        henosis_crux::append(&path, henosis_crux::Event::Proposed {
+            goal: goal.into(), hypothesis: "hypothesis".into(), test: "test".into(),
+        }).unwrap();
+    }
+    henosis_crux::append(&path, henosis_crux::Event::Observed { proposal: 2, outcome: "second outcome".into() }).unwrap();
+    henosis_crux::append(&path, henosis_crux::Event::Observed { proposal: 1, outcome: "first outcome".into() }).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
+        .current_dir(directory.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(b"show crux.jsonl 1\nshow crux.jsonl 3\nexit\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stdout.contains("first goal"));
+    assert!(stdout.contains("first outcome"));
+    assert!(!stdout.contains("second goal"));
+    assert!(!stdout.contains("second outcome"));
+    assert!(stderr.contains("No proposal with ID 3"));
+}

@@ -6,15 +6,25 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  show FILE ID                         Show a proposal and its history\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 // Journal content is untrusted and must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
 fn terminal_text(text: &str) -> String {
-    text.chars().flat_map(|ch| {
-        if ch.is_control() { ch.escape_default().collect::<String>().chars().collect::<Vec<_>>() }
-        else { vec![ch] }
-    }).collect()
+    let mut output = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_control() { output.extend(ch.escape_default()); }
+        else { output.push(ch); }
+    }
+    output
+}
+
+fn print_event(id: usize, event: &Event) {
+    match event {
+        Event::Proposed { goal, hypothesis, test } => println!("{}  PROPOSAL (unverified)\n  Goal: {}\n  Hypothesis: {}\n  Test: {}", id, terminal_text(goal), terminal_text(hypothesis), terminal_text(test)),
+        Event::Observed { proposal, outcome } => println!("{}  OBSERVATION for {} (unverified)\n  Outcome: {}", id, proposal, terminal_text(outcome)),
+        Event::Assessed { proposal, information, failure, cost } => println!("{}  ASSESSMENT for {} (subjective)\n  Information: {}  Failure: {}  Cost: {}", id, proposal, information, failure, cost),
+    }
 }
 
 fn main() -> ExitCode {
@@ -116,14 +126,30 @@ fn workspace() -> io::Result<()> {
                 },
                 Err(error) => eprintln!("Could not rank journal: {error}"),
             },
+            "show" if words.len() == 3 => match words[2].parse::<u64>() {
+                Ok(id) => match henosis_crux::read(Path::new(&words[1])) {
+                    Ok(events) => {
+                        let proposal_index = id.checked_sub(1).and_then(|n| usize::try_from(n).ok());
+                        match proposal_index.and_then(|index| events.get(index)) {
+                            Some(event @ Event::Proposed { .. }) => {
+                                print_event(usize::try_from(id).expect("validated proposal ID"), event);
+                                for (index, event) in events.iter().enumerate() {
+                                    if matches!(event, Event::Observed { proposal, .. } | Event::Assessed { proposal, .. } if *proposal == id) {
+                                        print_event(index + 1, event);
+                                    }
+                                }
+                            },
+                            _ => eprintln!("No proposal with ID {id}."),
+                        }
+                    },
+                    Err(error) => eprintln!("Could not read journal: {error}"),
+                },
+                Err(_) => eprintln!("Proposal ID must be a number."),
+            },
             "journal" if words.len() == 2 => match henosis_crux::read(Path::new(&words[1])) {
                 Ok(events) if events.is_empty() => println!("No events."),
                 Ok(events) => for (index, event) in events.iter().enumerate() {
-                    match event {
-                        Event::Proposed { goal, hypothesis, test } => println!("{}  PROPOSAL (unverified)\n  Goal: {}\n  Hypothesis: {}\n  Test: {}", index + 1, terminal_text(goal), terminal_text(hypothesis), terminal_text(test)),
-                        Event::Observed { proposal, outcome } => println!("{}  OBSERVATION for {} (unverified)\n  Outcome: {}", index + 1, proposal, terminal_text(outcome)),
-                        Event::Assessed { proposal, information, failure, cost } => println!("{}  ASSESSMENT for {} (subjective)\n  Information: {}  Failure: {}  Cost: {}", index + 1, proposal, information, failure, cost),
-                    }
+                    print_event(index + 1, event);
                 },
                 Err(error) => eprintln!("Could not read journal: {error}"),
             },

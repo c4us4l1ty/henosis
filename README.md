@@ -95,3 +95,7 @@ versions of Henosis cannot read the new assessment records.
 Journals are limited to 8 MiB and must be regular files in a trusted directory.
 On Unix, opening a FIFO is nonblocking and rejected. Symbolic links are followed;
 this journal does not defend against hostile changes to its directory or files.
+
+Use `show ./crux.jsonl 1` to inspect one proposal and its assessment and
+observation history in order. Journal text is escaped when printed if it
+contains terminal control characters.
