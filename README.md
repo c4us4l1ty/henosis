@@ -116,3 +116,20 @@ appears in `rank`; reopening retains its latest assessment. Status changes are
 user-reported, may be repeated, and do not verify the result. Observations and
 assessments can still be recorded for closed proposals. Older versions cannot
 read status-change records.
+
+### Back up a journal
+
+```text
+backup ./crux.jsonl ./crux-backup.jsonl
+```
+
+This validates the journal under a shared lock and creates a point-in-time,
+byte-for-byte plaintext copy. Later events are not included. The destination
+must not exist, and both directories must be trusted; this operation will not
+replace an existing file. The temporary backup is synced before publication,
+but directory durability is not guaranteed and a crash may leave a temporary
+file. Backup permissions are owner-only on Unix and depend on directory ACLs on
+Windows. Backups are not encrypted or tamper-evident. Store copies securely
+and separately, and verify that they can be read before relying on them.
+To restore, stop all writers and copy a verified backup to a **new** journal
+path; do not replace or unlink a journal while any workspace has it open.
