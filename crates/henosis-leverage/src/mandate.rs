@@ -106,7 +106,7 @@ pub fn detect_abandonment(
         let actually_supported: Vec<String> = mandate
             .claimed_supported_goals
             .iter()
-            .filter(|goal| load_bearing_caps.contains(&mandate.id))
+            .filter(|_| load_bearing_caps.contains(&mandate.id))
             .cloned()
             .collect();
         let load_bearing = load_bearing_caps.contains(&mandate.id);
@@ -174,7 +174,7 @@ mod tests {
     use super::*;
     use henosis_dag::{EpistemicStatus, RealizationContract};
 
-    fn contract(id: &str, prereqs: &[&str], output: &str) -> RealizationContract {
+    fn contract(id: &str, prereqs: &[&str], output: &str, cost: u32) -> RealizationContract {
         RealizationContract {
             id: id.into(),
             title: id.into(),
@@ -185,8 +185,8 @@ mod tests {
             verification: "z".into(),
             failure_boundary: vec![],
             status: EpistemicStatus::Observed,
-            cost_units: 2,
-        }
+        cost_units: cost,
+    }
         .normalized()
         .unwrap()
     }
