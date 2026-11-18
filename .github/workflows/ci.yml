@@ -18,7 +18,7 @@ jobs:
           exit ${PIPESTATUS[0]}
         shell: bash
       - run: |
-          grep -E 'error\[|-->\|^\s*\| \|^\s*\^|help:|note:|mismatched|cannot borrow|cannot find|\?.*convert|unused' /tmp/cargo_output.txt | while IFS= read -r line; do
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/cargo_output.txt | grep -E 'error\[|mismatched|cannot borrow|cannot find|help:|note:|unused variable|unused import' | while IFS= read -r line; do
             echo "::error::${line}"
           done
         if: always()
