@@ -53,3 +53,7 @@ visibility but are not an atomic transaction with external process execution.
 Artifact comparison re-reads the path recorded in the journal. A matching hash
 is only a comparison to that unauthenticated record; it is not an independent
 attestation. Symlink substitution and concurrent modification are out of scope.
+
+User recovery notes are assertions, not process results. Reviewing an attempt
+does not stop it, establish whether it ran, or make retrying safe. Unfinished
+attempts remain visible even after a review.

@@ -140,6 +140,8 @@ path; do not replace or unlink a journal while any workspace has it open.
 
 ### Run a trusted experiment
 
+A runnable, end-to-end example lives in [`examples/double-number`](examples/double-number/).
+
 Create a proposal, then run a command and attach its result:
 
 ```text
