@@ -12,7 +12,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo test --locked --workspace --no-run
+      - run: |
+          set +eo pipefail
+          cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          grep -E '^(error|warning):' /tmp/cargo_output.txt | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+          exit $EXIT_CODE
+        shell: bash
       - run: cargo test -p henosis-vault --locked
       - run: cargo test -p henosis-crux --locked
       - run: cargo test -p henosis-dag --locked
