@@ -29,10 +29,23 @@ fn print_event(id: usize, event: &Event) {
         Event::ExperimentFailed { proposal, attempt, error } => println!("{}  RUNNER ERROR for proposal {}, attempt {} (command may have run)\n  Error: {}", id, proposal, attempt, terminal_text(error)),
         Event::CommandResult { proposal, attempt, evidence } => {
             let matched = !evidence.timed_out && evidence.exit_code == Some(evidence.expected_exit);
-            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Attempt: {:?}\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Environment names only: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Artifact: {}  SHA-256: {}\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout lossy: {:?}  Stderr lossy: {:?} (None means unknown)\n  Stdout: {}\n  Stderr: {}", id, proposal, attempt,
+            let before = match &evidence.artifact_before {
+                Some(henosis_evidence::ArtifactBefore::NotFound) => "not found".to_owned(),
+                Some(henosis_evidence::ArtifactBefore::Hashed { sha256 }) => format!("SHA-256: {}", terminal_text(sha256)),
+                Some(henosis_evidence::ArtifactBefore::Unavailable { error }) => format!("unavailable: {}", terminal_text(error)),
+                None => "not recorded (legacy result)".to_owned(),
+            };
+            let change = match evidence.artifact_change() {
+                henosis_evidence::ArtifactChange::Appeared => "APPEARED",
+                henosis_evidence::ArtifactChange::Changed => "CHANGED",
+                henosis_evidence::ArtifactChange::Unchanged => "UNCHANGED",
+                henosis_evidence::ArtifactChange::Unavailable => "UNAVAILABLE",
+            };
+            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Attempt: {:?}\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Environment names only: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Artifact: {}  SHA-256: {}\n  Artifact before: {}  Comparison: {} (observations, not proof of authorship)\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout lossy: {:?}  Stderr lossy: {:?} (None means unknown)\n  Stdout: {}\n  Stderr: {}", id, proposal, attempt,
                 terminal_text(&evidence.project), terminal_text(&evidence.program), evidence.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(), evidence.env_keys.iter().map(|key| terminal_text(key)).collect::<Vec<_>>(),
                 evidence.expected_exit, evidence.exit_code, matched, evidence.timed_out, terminal_text(&evidence.artifact),
                 evidence.artifact_sha256.as_deref().map(terminal_text).unwrap_or_else(|| "unavailable".into()),
+                before, change,
                 evidence.artifact_error.as_deref().map(terminal_text).unwrap_or_else(|| "none".into()),
                 evidence.output_incomplete, evidence.stdout_truncated, evidence.stderr_truncated, evidence.stdout_lossy, evidence.stderr_lossy,
                 terminal_text(&evidence.stdout), terminal_text(&evidence.stderr));

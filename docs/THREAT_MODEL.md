@@ -62,3 +62,10 @@ An explicit environment allowlist reduces accidental inheritance, not access to
 local secrets. Values selected for `runenv` are not directly serialized, but can
 appear in output, files, network traffic, process inspection, or crash data.
 Only select non-secret values; never treat name filtering as secret detection.
+
+Pre-run and post-run artifact observations are non-atomic reads of a mutable
+path. A comparison describes only the bytes observed, not authorship, a complete
+change history, or an integrity guarantee; concurrent processes, symlink changes,
+and surviving descendants can affect either observation. Not-found includes
+paths that cannot resolve (such as a dangling symlink), not proof of creation.
+Older results have no pre-run observation.

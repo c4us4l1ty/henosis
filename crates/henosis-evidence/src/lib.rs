@@ -60,6 +60,41 @@ pub struct Evidence {
     pub output_incomplete: bool,
     pub artifact_sha256: Option<String>,
     pub artifact_error: Option<String>,
+    /// None for evidence recorded before pre-run observations were introduced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_before: Option<ArtifactBefore>,
+}
+
+/// An observation made immediately before starting the child, not an attestation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ArtifactBefore {
+    NotFound,
+    Hashed { sha256: String },
+    Unavailable { error: String },
+}
+
+/// Comparison of observed bytes; it does not establish who changed the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtifactChange { Appeared, Changed, Unchanged, Unavailable }
+
+fn valid_sha256(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+
+impl Evidence {
+    pub fn artifact_change(&self) -> ArtifactChange {
+        if !self.artifact_sha256.as_deref().is_some_and(valid_sha256) { return ArtifactChange::Unavailable; }
+        if let Some(ArtifactBefore::Hashed { sha256 }) = &self.artifact_before {
+            if !valid_sha256(sha256) { return ArtifactChange::Unavailable; }
+        }
+        match (&self.artifact_before, &self.artifact_sha256, &self.artifact_error) {
+            (Some(ArtifactBefore::NotFound), Some(_), None) => ArtifactChange::Appeared,
+            (Some(ArtifactBefore::Hashed { sha256 }), Some(after), None) if sha256 == after => ArtifactChange::Unchanged,
+            (Some(ArtifactBefore::Hashed { .. }), Some(_), None) => ArtifactChange::Changed,
+            _ => ArtifactChange::Unavailable,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -154,7 +189,7 @@ pub struct ArtifactComparison {
 /// modification is not prevented. File contents are limited to 64 MiB.
 pub fn compare_artifact(evidence: &Evidence) -> io::Result<ArtifactComparison> {
     let recorded = evidence.artifact_sha256.as_deref().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no recorded artifact hash"))?;
-    if recorded.len() != 64 || !recorded.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)) {
+    if !valid_sha256(recorded) {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid recorded SHA-256 hash"));
     }
     let path = checked_artifact_path(&evidence.project, &evidence.artifact)?;
@@ -211,6 +246,11 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "program must be an absolute path"));
     }
     let artifact_path = checked_artifact_path(project, artifact)?;
+    let artifact_before = match artifact_hash(&artifact_path) {
+        Ok(sha256) => ArtifactBefore::Hashed { sha256 },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => ArtifactBefore::NotFound,
+        Err(error) => ArtifactBefore::Unavailable { error: error.to_string() },
+    };
     let mut child = Command::new(executable).args(arguments).current_dir(directory).env_clear()
         .envs(environment.iter().map(|(key, value)| (key, value)))
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
@@ -263,7 +303,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
         stdout_truncated, stderr_truncated,
         stdout_lossy: Some(stdout_lossy), stderr_lossy: Some(stderr_lossy),
         output_incomplete: finished != 2 || stdout_failed || stderr_failed,
-        artifact_sha256, artifact_error,
+        artifact_sha256, artifact_error, artifact_before: Some(artifact_before),
     })
 }
 
@@ -281,6 +321,50 @@ mod tests {
         assert_eq!(result.stderr, "error");
         assert_eq!(result.artifact_sha256.as_deref(), Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
         assert!(!result.output_incomplete);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn artifact_observations_compare_before_and_after_without_claiming_authorship() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().to_str().unwrap();
+        let command = |script: &str| run(project, "artifact", 0, "/bin/sh", &["-c".into(), script.into()]).unwrap();
+        let appeared = command("printf first > artifact");
+        assert_eq!(appeared.artifact_before, Some(ArtifactBefore::NotFound));
+        assert_eq!(appeared.artifact_change(), ArtifactChange::Appeared);
+        let unchanged = command("exit 0");
+        assert!(matches!(unchanged.artifact_before, Some(ArtifactBefore::Hashed { .. })));
+        assert_eq!(unchanged.artifact_change(), ArtifactChange::Unchanged);
+        let changed = command("printf second > artifact");
+        assert_eq!(changed.artifact_change(), ArtifactChange::Changed);
+        let removed = command("/bin/rm artifact");
+        assert_eq!(removed.artifact_change(), ArtifactChange::Unavailable);
+        let missing = command("exit 0");
+        assert_eq!(missing.artifact_before, Some(ArtifactBefore::NotFound));
+        assert_eq!(missing.artifact_change(), ArtifactChange::Unavailable);
+        std::fs::File::create(dir.path().join("artifact")).unwrap().set_len(ARTIFACT_LIMIT + 1).unwrap();
+        let large_before = command("printf small > artifact");
+        assert!(matches!(large_before.artifact_before, Some(ArtifactBefore::Unavailable { .. })));
+        assert_eq!(large_before.artifact_change(), ArtifactChange::Unavailable);
+        std::fs::File::create(dir.path().join("artifact")).unwrap().set_len(ARTIFACT_LIMIT + 1).unwrap();
+        let large_after = command("exit 0");
+        assert!(large_after.artifact_error.is_some());
+        assert_eq!(large_after.artifact_change(), ArtifactChange::Unavailable);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn symlink_observations_follow_targets_without_proving_file_creation() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        symlink("target", dir.path().join("artifact")).unwrap();
+        let project = dir.path().to_str().unwrap();
+        let run_script = |script: &str| run(project, "artifact", 0, "/bin/sh", &["-c".into(), script.into()]).unwrap();
+        let result = run_script("printf content > artifact");
+        assert_eq!(result.artifact_before, Some(ArtifactBefore::NotFound));
+        assert_eq!(result.artifact_change(), ArtifactChange::Appeared);
+        assert!(std::fs::symlink_metadata(dir.path().join("artifact")).unwrap().file_type().is_symlink());
+        std::fs::write(dir.path().join("other"), b"different").unwrap();
+        let result = run_script("/bin/ln -sf other artifact");
+        assert_eq!(result.artifact_change(), ArtifactChange::Changed);
     }
     #[test]
     fn oversized_artifact_is_rejected() {
