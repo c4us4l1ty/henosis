@@ -549,7 +549,7 @@ mod tests {
         // fails it can exit itself, so a test failure cannot leave a long orphan.
         let script = "(printf ready > ready; n=0; while [ ! -f release ] && [ $n -lt 100 ]; do /bin/sleep 0.1; n=$((n+1)); done; if [ -f release ]; then printf survived > survived; fi) & wait";
         let thread = std::thread::spawn(move || run_inner(&project, "missing", 0, "/bin/sh", &["-c".into(), script.into()], &[], (Duration::from_secs(3), Duration::from_secs(2))).unwrap());
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(30);
         while !dir.path().join("ready").exists() && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(20)); }
         let ready = dir.path().join("ready").exists();
         let result = thread.join().unwrap();

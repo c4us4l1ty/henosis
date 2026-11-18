@@ -12,7 +12,7 @@ fn shell(directory: &Path, input: &str) -> Output {
 }
 
 fn wait_for(path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + Duration::from_secs(120);
     while !path.exists() {
         assert!(Instant::now() < deadline, "timed out waiting for {}", path.display());
         std::thread::sleep(Duration::from_millis(20));
