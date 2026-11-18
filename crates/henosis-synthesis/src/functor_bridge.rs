@@ -294,8 +294,8 @@ pub fn solve_functor(
     source: &StructuralSignature,
     target: &StructuralSignature,
 ) -> Result<Functor, RejectionReason> {
-    source.validate()?;
-    target.validate()?;
+    source.validate().map_err(|_| RejectionReason::NoFunctorExists)?;
+    target.validate().map_err(|_| RejectionReason::NoFunctorExists)?;
 
     if source.properties.is_empty() && source.operations.is_empty() && source.node_kinds.is_empty() {
         return Ok(Functor {

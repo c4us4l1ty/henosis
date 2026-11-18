@@ -13,7 +13,9 @@
 //! exact, exponential search bounded to small axiom sets; it is a decision aid,
 //! not a license to delete inconvenient truths.
 
+use combination::Combination;
 use henosis_crux::Event;
+use henosis_dag::validate_id;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
