@@ -72,8 +72,8 @@ pub fn decode_array<const N: usize>(text: &str) -> Result<[u8; N], HexError> {
     }
     let mut out = [0u8; N];
     let raw = text.as_bytes();
-    for (slot, pair) in out.iter_mut().zip(raw.array_chunks::<2>()) {
-        *slot = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+    for i in (0..raw.len()).step_by(2) {
+        out[i / 2] = (nibble(raw[i])? << 4) | nibble(raw[i + 1])?;
     }
     Ok(out)
 }
