@@ -144,7 +144,7 @@ pub fn derive_purpose_key(
         return Err(IdentityError::WrongWordCount);
     }
     let seed = mnemonic.to_seed(passphrase);
-    let hkdf = Hkdf::<Sha256>::new(Some(SUBKEY_SALT), seed.expose_secret());
+    let hkdf = Hkdf::<Sha256>::new(Some(SUBKEY_SALT), &seed);
     let mut out = Zeroizing::new([0u8; 32]);
     hkdf.expand(purpose, out.as_mut())
         .expect("valid HKDF output length");
@@ -179,8 +179,7 @@ impl Identity {
         // A 32-byte HKDF-SHA256 output is always within the expansion limit.
         hkdf.expand(IDENTITY_INFO, key.as_mut())
             .expect("valid HKDF output length");
-        let signing_key = SigningKey::from_bytes(&*key)
-            .expect("derived key material is not a valid Ed25519 scalar");
+        let signing_key = SigningKey::from_bytes(&*key);
         Ok(Self { signing_key })
     }
 
