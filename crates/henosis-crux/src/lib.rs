@@ -308,10 +308,10 @@ mod tests {
     fn unfinished_attempts_track_results_and_reject_mismatched_references() {
         let path = path();
         append(&path, proposal()).unwrap();
-        let request = henosis_evidence::Request { project: "/project".into(), program: "/tool".into(), arguments: vec!["arg".into()], artifact: "out".into(), expected_exit: 0 };
+        let request = henosis_evidence::Request { project: "/project".into(), program: "/tool".into(), arguments: vec!["arg".into()], artifact: "out".into(), expected_exit: 0, env_keys: vec![] };
         assert_eq!(append(&path, Event::ExperimentStarted { proposal: 1, request: request.clone() }).unwrap(), 2);
         let evidence = henosis_evidence::Evidence {
-            project: request.project.clone(), program: request.program.clone(), arguments: request.arguments.clone(), artifact: request.artifact.clone(), expected_exit: 0,
+            project: request.project.clone(), program: request.program.clone(), arguments: request.arguments.clone(), artifact: request.artifact.clone(), expected_exit: 0, env_keys: vec![],
             exit_code: Some(0), timed_out: false, stdout: String::new(), stderr: String::new(),
             stdout_truncated: false, stderr_truncated: false, stdout_lossy: Some(false), stderr_lossy: Some(false), output_incomplete: false,
             artifact_sha256: None, artifact_error: Some("missing".into()),

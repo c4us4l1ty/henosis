@@ -177,7 +177,7 @@ fn unfinished_attempt_and_runner_failure_are_visible() {
     let missing_program = directory.path().join("no-such-executable").to_str().unwrap().replace('\\', "/");
     henosis_crux::append(&path, henosis_crux::Event::Proposed { goal: "g".into(), hypothesis: "h".into(), test: "t".into() }).unwrap();
     henosis_crux::append(&path, henosis_crux::Event::ExperimentStarted { proposal: 1, request: henosis_evidence::Request {
-        project: project.clone(), artifact: "artifact".into(), program: missing_program.clone(), expected_exit: 0, arguments: vec![],
+        project: project.clone(), artifact: "artifact".into(), program: missing_program.clone(), expected_exit: 0, arguments: vec![], env_keys: vec![],
     }}).unwrap();
     let input = format!("pending crux.jsonl\nrun crux.jsonl 1 \"{project}\" artifact 0 \"{missing_program}\"\npending crux.jsonl\nshow crux.jsonl 1\nexit\n");
     let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))

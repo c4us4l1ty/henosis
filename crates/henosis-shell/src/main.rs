@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  runenv FILE ID PROJECT ARTIFACT EXIT KEY[,KEY...] PROGRAM [ARGS...]\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 // User-controlled text must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
@@ -24,13 +24,13 @@ fn print_event(id: usize, event: &Event) {
         Event::Proposed { goal, hypothesis, test } => println!("{}  PROPOSAL (unverified)\n  Goal: {}\n  Hypothesis: {}\n  Test: {}", id, terminal_text(goal), terminal_text(hypothesis), terminal_text(test)),
         Event::Observed { proposal, outcome } => println!("{}  OBSERVATION for {} (unverified)\n  Outcome: {}", id, proposal, terminal_text(outcome)),
         Event::Assessed { proposal, information, failure, cost } => println!("{}  ASSESSMENT for {} (subjective)\n  Information: {}  Failure: {}  Cost: {}", id, proposal, information, failure, cost),
-        Event::ExperimentStarted { proposal, request } => println!("{}  ATTEMPT for {} (recorded before execution; outcome unknown until a result is recorded)\n  Project: {}  Program: {}\n  Arguments: {:?}  Artifact: {}  Expected exit: {}", id, proposal, terminal_text(&request.project), terminal_text(&request.program), request.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(), terminal_text(&request.artifact), request.expected_exit),
+        Event::ExperimentStarted { proposal, request } => println!("{}  ATTEMPT for {} (recorded before execution; outcome unknown until a result is recorded)\n  Project: {}  Program: {}\n  Arguments: {:?}  Artifact: {}  Expected exit: {}\n  Environment names only: {:?}", id, proposal, terminal_text(&request.project), terminal_text(&request.program), request.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(), terminal_text(&request.artifact), request.expected_exit, request.env_keys.iter().map(|key| terminal_text(key)).collect::<Vec<_>>()),
         Event::AttemptReviewed { proposal, attempt, note } => println!("{}  USER REVIEW for proposal {}, attempt {} (not a command result)\n  Note: {}", id, proposal, attempt, terminal_text(note)),
         Event::ExperimentFailed { proposal, attempt, error } => println!("{}  RUNNER ERROR for proposal {}, attempt {} (command may have run)\n  Error: {}", id, proposal, attempt, terminal_text(error)),
         Event::CommandResult { proposal, attempt, evidence } => {
             let matched = !evidence.timed_out && evidence.exit_code == Some(evidence.expected_exit);
-            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Attempt: {:?}\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Artifact: {}  SHA-256: {}\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout lossy: {:?}  Stderr lossy: {:?} (None means unknown)\n  Stdout: {}\n  Stderr: {}", id, proposal, attempt,
-                terminal_text(&evidence.project), terminal_text(&evidence.program), evidence.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(),
+            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Attempt: {:?}\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Environment names only: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Artifact: {}  SHA-256: {}\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout lossy: {:?}  Stderr lossy: {:?} (None means unknown)\n  Stdout: {}\n  Stderr: {}", id, proposal, attempt,
+                terminal_text(&evidence.project), terminal_text(&evidence.program), evidence.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(), evidence.env_keys.iter().map(|key| terminal_text(key)).collect::<Vec<_>>(),
                 evidence.expected_exit, evidence.exit_code, matched, evidence.timed_out, terminal_text(&evidence.artifact),
                 evidence.artifact_sha256.as_deref().map(terminal_text).unwrap_or_else(|| "unavailable".into()),
                 evidence.artifact_error.as_deref().map(terminal_text).unwrap_or_else(|| "none".into()),
@@ -140,23 +140,31 @@ fn workspace() -> io::Result<()> {
                 },
                 Err(error) => eprintln!("Could not rank journal: {error}"),
             },
-            "run" if words.len() >= 7 => {
+            "run" | "runenv" if (command == "run" && words.len() >= 7) || (command == "runenv" && words.len() >= 8) => {
                 match (words[2].parse::<u64>(), words[5].parse::<i32>()) {
                     (Ok(proposal), Ok(expected_exit)) => {
                         let path = Path::new(&words[1]);
-                        let request = henosis_evidence::Request { project: words[3].clone(), artifact: words[4].clone(), expected_exit, program: words[6].clone(), arguments: words[7..].to_vec() };
-                        let started = Event::ExperimentStarted { proposal, request };
-                        match henosis_crux::append(path, started) {
-                            Err(error) => eprintln!("Experiment not started; could not record intent: {error}. Inspect the journal before retrying."),
-                            Ok(attempt) => {
-                                println!("Recorded attempt {attempt}. Running trusted command; this is not a sandbox or capability verification.");
-                                let result = match henosis_evidence::run(&words[3], &words[4], expected_exit, &words[6], &words[7..]) {
-                                    Ok(evidence) => Event::CommandResult { proposal, attempt: Some(attempt), evidence },
-                                    Err(error) => Event::ExperimentFailed { proposal, attempt, error: error.to_string() },
-                                };
-                                match henosis_crux::append(path, result.clone()) {
-                                    Ok(id) => print_event(id as usize, &result),
-                                    Err(error) => eprintln!("Attempt {attempt} may have run, but recording its outcome failed: {error}. Inspect the journal and project before retrying."),
+                        let program_index = if command == "runenv" { 7 } else { 6 };
+                        let keys: Vec<String> = if command == "runenv" { words[6].split(',').map(str::to_owned).collect() } else { Vec::new() };
+                        match henosis_evidence::resolve_parent_environment(&keys) {
+                            Err(error) => eprintln!("Experiment not started; environment selection failed: {error}"),
+                            Ok(environment) => {
+                                let request = henosis_evidence::Request { project: words[3].clone(), artifact: words[4].clone(), expected_exit, program: words[program_index].clone(), arguments: words[program_index + 1..].to_vec(), env_keys: keys };
+                                let started = Event::ExperimentStarted { proposal, request };
+                                match henosis_crux::append(path, started) {
+                                    Err(error) => eprintln!("Experiment not started; could not record intent: {error}. Inspect the journal before retrying."),
+                                    Ok(attempt) => {
+                                        println!("Recorded attempt {attempt}. Running trusted command; this is not a sandbox or capability verification.");
+                                        if command == "runenv" { println!("Selected environment values are visible to the child and may appear in captured output. Never pass secrets."); }
+                                        let result = match henosis_evidence::run_with_env(&words[3], &words[4], expected_exit, &words[program_index], &words[program_index + 1..], &environment) {
+                                            Ok(evidence) => Event::CommandResult { proposal, attempt: Some(attempt), evidence },
+                                            Err(error) => Event::ExperimentFailed { proposal, attempt, error: error.to_string() },
+                                        };
+                                        match henosis_crux::append(path, result.clone()) {
+                                            Ok(id) => print_event(id as usize, &result),
+                                            Err(error) => eprintln!("Attempt {attempt} may have run, but recording its outcome failed: {error}. Inspect the journal and project before retrying."),
+                                        }
+                                    },
                                 }
                             },
                         }
