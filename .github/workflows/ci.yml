@@ -18,6 +18,6 @@ jobs:
       - run: |
           sed 's/\x1b\[[0-9;]*m//g' /tmp/clippy_output.txt | grep -Ei 'warning|error' | while IFS= read -r line; do
             echo "::error::${line}"
-          done
+          done || true
         shell: bash
         if: always()
