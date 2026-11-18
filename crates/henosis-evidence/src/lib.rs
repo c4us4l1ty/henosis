@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::{self, Read};
-use std::path::{Component, Path};
-use std::process::{Command, Stdio};
+use std::path::{Component, Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -14,6 +14,25 @@ const OUTPUT_LIMIT: usize = 16 * 1024;
 const ARTIFACT_LIMIT: u64 = 64 * 1024 * 1024;
 const RUN_LIMIT: Duration = Duration::from_secs(30);
 const DRAIN_LIMIT: Duration = Duration::from_secs(1);
+
+/// User-supplied command details, recorded before a run is attempted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Request {
+    pub project: String,
+    pub program: String,
+    pub arguments: Vec<String>,
+    pub artifact: String,
+    pub expected_exit: i32,
+}
+
+impl Request {
+    pub fn matches(&self, evidence: &Evidence) -> bool {
+        self.project == evidence.project && self.program == evidence.program
+            && self.arguments == evidence.arguments && self.artifact == evidence.artifact
+            && self.expected_exit == evidence.expected_exit
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -41,8 +60,8 @@ pub struct Evidence {
 #[derive(Default)]
 struct Capture { bytes: Vec<u8>, truncated: bool, failed: bool }
 
-fn drain<R: Read + Send + 'static>(mut reader: R, state: Arc<Mutex<Capture>>, done: mpsc::Sender<()>) {
-    std::thread::spawn(move || {
+fn drain<R: Read + Send + 'static>(mut reader: R, state: Arc<Mutex<Capture>>, done: mpsc::Sender<()>) -> io::Result<()> {
+    std::thread::Builder::new().spawn(move || {
         let mut buffer = [0; 8192];
         loop {
             match reader.read(&mut buffer) {
@@ -58,7 +77,26 @@ fn drain<R: Read + Send + 'static>(mut reader: R, state: Arc<Mutex<Capture>>, do
             }
         }
         let _ = done.send(());
-    });
+    })?;
+    Ok(())
+}
+
+// If setting up either reader fails, terminate and reap the direct child when
+// possible. Killing descendants is outside this runner's security boundary.
+fn start_readers<F>(child: &mut Child, stdout: Arc<Mutex<Capture>>, stderr: Arc<Mutex<Capture>>, send: mpsc::Sender<()>, mut start: F) -> io::Result<()>
+where F: FnMut(Box<dyn Read + Send>, Arc<Mutex<Capture>>, mpsc::Sender<()>) -> io::Result<()> {
+    let result = (|| {
+        let out = child.stdout.take().ok_or_else(|| io::Error::other("missing stdout pipe"))?;
+        let err = child.stderr.take().ok_or_else(|| io::Error::other("missing stderr pipe"))?;
+        start(Box::new(out), stdout, send.clone())?;
+        start(Box::new(err), stderr, send)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        if child.kill().is_ok() { let _ = child.wait(); }
+        else { let _ = child.try_wait(); }
+    }
+    result
 }
 
 fn artifact_hash(path: &Path) -> io::Result<String> {
@@ -70,7 +108,9 @@ fn artifact_hash(path: &Path) -> io::Result<String> {
         options.custom_flags(libc::O_NONBLOCK);
     }
     let file = options.open(path)?;
-    if !file.metadata()?.is_file() { return Err(io::Error::new(io::ErrorKind::InvalidInput, "artifact is not a regular file")); }
+    let metadata = file.metadata()?;
+    if !metadata.is_file() { return Err(io::Error::new(io::ErrorKind::InvalidInput, "artifact is not a regular file")); }
+    if metadata.len() > ARTIFACT_LIMIT { return Err(io::Error::new(io::ErrorKind::InvalidData, "artifact exceeds 64 MiB")); }
     let mut reader = file.take(ARTIFACT_LIMIT + 1);
     let mut hash = Sha256::new();
     let mut count = 0u64;
@@ -85,6 +125,38 @@ fn artifact_hash(path: &Path) -> io::Result<String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
+fn checked_artifact_path(project: &str, artifact: &str) -> io::Result<PathBuf> {
+    let directory = Path::new(project);
+    let artifact_path = Path::new(artifact);
+    if !directory.is_absolute() || !directory.is_dir() || artifact_path.as_os_str().is_empty()
+        || !artifact_path.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "project must be an absolute directory; artifact must be a relative path without parent traversal"));
+    }
+    Ok(directory.join(artifact_path))
+}
+
+/// A comparison of the recorded digest to the file bytes read now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactComparison {
+    pub recorded: String,
+    pub current: String,
+    pub matches: bool,
+}
+
+/// Re-hash the recorded artifact without executing the command or changing the
+/// journal. A match is not an attestation or proof of capability. The project
+/// and its directory must be trusted; symlinks are followed and concurrent
+/// modification is not prevented. File contents are limited to 64 MiB.
+pub fn compare_artifact(evidence: &Evidence) -> io::Result<ArtifactComparison> {
+    let recorded = evidence.artifact_sha256.as_deref().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no recorded artifact hash"))?;
+    if recorded.len() != 64 || !recorded.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid recorded SHA-256 hash"));
+    }
+    let path = checked_artifact_path(&evidence.project, &evidence.artifact)?;
+    let current = artifact_hash(&path)?;
+    Ok(ArtifactComparison { recorded: recorded.to_owned(), matches: recorded == current, current })
+}
+
 /// Run a trusted executable with an empty environment. Output is drained while
 /// the process runs but retained only up to 16 KiB per stream. The 30-second
 /// timeout kills the direct child only. Descendants are not contained.
@@ -96,18 +168,16 @@ pub fn run(project: &str, artifact: &str, expected_exit: i32, program: &str, arg
 fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], limits: (Duration, Duration)) -> io::Result<Evidence> {
     let directory = Path::new(project);
     let executable = Path::new(program);
-    let artifact_path = Path::new(artifact);
-    if !directory.is_absolute() || !directory.is_dir() || !executable.is_absolute()
-        || artifact_path.as_os_str().is_empty() || !artifact_path.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "project and program must be absolute; artifact must be a relative path without parent traversal"));
+    if !executable.is_absolute() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "program must be an absolute path"));
     }
+    let artifact_path = checked_artifact_path(project, artifact)?;
     let mut child = Command::new(executable).args(arguments).current_dir(directory).env_clear()
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let stdout = Arc::new(Mutex::new(Capture::default()));
     let stderr = Arc::new(Mutex::new(Capture::default()));
     let (send, recv) = mpsc::channel();
-    drain(child.stdout.take().expect("piped stdout"), Arc::clone(&stdout), send.clone());
-    drain(child.stderr.take().expect("piped stderr"), Arc::clone(&stderr), send);
+    start_readers(&mut child, Arc::clone(&stdout), Arc::clone(&stderr), send, drain)?;
     let deadline = Instant::now() + limits.0;
     let (status, timed_out) = loop {
         match child.try_wait() {
@@ -143,7 +213,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
         let capture = stderr.lock().unwrap_or_else(|e| e.into_inner());
         (String::from_utf8_lossy(&capture.bytes).into_owned(), capture.truncated, capture.failed, std::str::from_utf8(&capture.bytes).is_err())
     };
-    let hash = artifact_hash(&directory.join(artifact_path));
+    let hash = artifact_hash(&artifact_path);
     let (artifact_sha256, artifact_error) = match hash { Ok(hash) => (Some(hash), None), Err(error) => (None, Some(error.to_string())) };
     Ok(Evidence {
         project: project.into(), program: program.into(), arguments: arguments.to_vec(), artifact: artifact.into(), expected_exit,
@@ -171,6 +241,43 @@ mod tests {
         assert_eq!(result.artifact_sha256.as_deref(), Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
         assert!(!result.output_incomplete);
     }
+    #[test]
+    fn oversized_artifact_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large");
+        std::fs::File::create(&path).unwrap().set_len(ARTIFACT_LIMIT + 1).unwrap();
+        assert_eq!(artifact_hash(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn artifact_fifo_without_writer_is_rejected_without_blocking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fifo");
+        assert!(Command::new("mkfifo").arg(&path).status().unwrap().success());
+        assert_eq!(artifact_hash(&path).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn compares_recorded_hash_without_reexecuting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("artifact");
+        std::fs::write(&path, b"abc").unwrap();
+        let mut evidence = run(dir.path().to_str().unwrap(), "artifact", 0, "/bin/sh", &["-c".into(), "exit 0".into()]).unwrap();
+        assert!(compare_artifact(&evidence).unwrap().matches);
+        std::fs::write(&path, b"changed").unwrap();
+        let changed = compare_artifact(&evidence).unwrap();
+        assert!(!changed.matches);
+        assert_ne!(changed.recorded, changed.current);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(compare_artifact(&evidence).unwrap_err().kind(), io::ErrorKind::NotFound);
+        evidence.artifact_sha256 = None;
+        assert_eq!(compare_artifact(&evidence).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        evidence.artifact_sha256 = Some("not-a-hash".into());
+        assert_eq!(compare_artifact(&evidence).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        evidence.artifact_sha256 = Some("0".repeat(64));
+        evidence.artifact = "../outside".into();
+        assert_eq!(compare_artifact(&evidence).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
     #[cfg(unix)]
     #[test]
     fn invalid_utf8_is_marked_as_lossy() {
@@ -190,6 +297,23 @@ mod tests {
         assert!(result.stdout_truncated);
         assert!(result.artifact_sha256.is_none());
         assert!(result.artifact_error.is_some());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn reader_setup_failure_stops_and_reaps_direct_child() {
+        for failing_call in [1, 2] {
+            let mut child = Command::new("/bin/sleep").arg("30").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+            let (send, _recv) = mpsc::channel();
+            let mut calls = 0;
+            let result = start_readers(&mut child, Arc::new(Mutex::new(Capture::default())), Arc::new(Mutex::new(Capture::default())), send,
+                |reader, state, sender| {
+                    calls += 1;
+                    if calls == failing_call { Err(io::Error::other("simulated thread creation failure")) }
+                    else { drain(reader, state, sender) }
+                });
+            assert!(result.is_err());
+            assert!(child.try_wait().unwrap().is_some());
+        }
     }
     #[cfg(unix)]
     #[test]
