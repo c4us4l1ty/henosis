@@ -181,7 +181,7 @@ fn workspace() -> io::Result<()> {
                                             Err(error) => Event::ExperimentFailed { proposal, attempt, error: error.to_string() },
                                         };
                                         match henosis_crux::append(path, result.clone()) {
-                                            Ok(id) => print_event(id as usize, &result),
+                                            Ok(_id) => print_event(proposal as usize, &result),
                                             Err(error) => eprintln!("Attempt {attempt} may have run, but recording its outcome failed: {error}. Inspect the journal and project before retrying."),
                                         }
                                     },
