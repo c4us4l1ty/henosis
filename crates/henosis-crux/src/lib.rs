@@ -14,7 +14,9 @@ pub enum Event {
     Observed { proposal: u64, outcome: String },
     Assessed { proposal: u64, information: u8, failure: u8, cost: u8 },
     StatusChanged { proposal: u64, closed: bool, reason: String },
-    CommandResult { proposal: u64, evidence: henosis_evidence::Evidence },
+    ExperimentStarted { proposal: u64, request: henosis_evidence::Request },
+    ExperimentFailed { proposal: u64, attempt: u64, error: String },
+    CommandResult { proposal: u64, #[serde(default, skip_serializing_if = "Option::is_none")] attempt: Option<u64>, evidence: henosis_evidence::Evidence },
 }
 
 /// Maximum journal size accepted by this experimental implementation.
@@ -105,16 +107,46 @@ fn validate(events: &[Event], event: &Event) -> io::Result<()> {
         .and_then(|n| usize::try_from(n).ok())
         .and_then(|n| events.get(n))
         .is_some_and(|event| matches!(event, Event::Proposed { .. }));
+    let attempt_request = |id: u64, proposal_id: u64| id.checked_sub(1)
+        .and_then(|n| usize::try_from(n).ok())
+        .and_then(|n| events.get(n))
+        .and_then(|event| match event {
+            Event::ExperimentStarted { proposal, request } if *proposal == proposal_id => Some(request),
+            _ => None,
+        });
     let valid = match event {
         Event::Proposed { goal, hypothesis, test } => nonempty(goal) && nonempty(hypothesis) && nonempty(test),
         Event::Observed { proposal, outcome } => nonempty(outcome) && is_proposal(proposal),
-        Event::CommandResult { proposal, .. } => is_proposal(proposal),
+        Event::ExperimentStarted { proposal, request } => is_proposal(proposal) && nonempty(&request.project) && nonempty(&request.program) && nonempty(&request.artifact),
+        Event::ExperimentFailed { proposal, attempt, error } => is_proposal(proposal) && nonempty(error) && attempt_request(*attempt, *proposal).is_some(),
+        Event::CommandResult { proposal, attempt, evidence } => is_proposal(proposal)
+            && attempt.is_none_or(|id| attempt_request(id, *proposal).is_some_and(|request| request.matches(evidence))),
         Event::StatusChanged { proposal, reason, .. } => nonempty(reason) && is_proposal(proposal),
         Event::Assessed { proposal, information, failure, cost } => {
             is_proposal(proposal) && [*information, *failure, *cost].iter().all(|n| (1..=5).contains(n))
         }
     };
-    if valid { Ok(()) } else { Err(io::Error::new(io::ErrorKind::InvalidInput, "fields must be nonempty, references must name an existing proposal, and estimates must be between 1 and 5")) }
+    if valid { Ok(()) } else { Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid fields, event references, attempt details, or estimates")) }
+}
+
+/// Return attempts with no recorded result or runner error. An unfinished
+/// attempt may have executed: never assume it is safe to retry automatically.
+pub fn unfinished(events: &[Event]) -> io::Result<Vec<(u64, u64)>> {
+    use std::collections::BTreeMap;
+    let mut pending = BTreeMap::new();
+    for (index, event) in events.iter().enumerate() {
+        validate(&events[..index], event)?;
+        match event {
+            Event::ExperimentStarted { proposal, .. } => {
+                let id = u64::try_from(index).ok().and_then(|n| n.checked_add(1))
+                    .ok_or_else(|| io::Error::other("journal is too large"))?;
+                pending.insert(id, *proposal);
+            },
+            Event::ExperimentFailed { attempt, .. } | Event::CommandResult { attempt: Some(attempt), .. } => { pending.remove(attempt); },
+            _ => (),
+        }
+    }
+    Ok(pending.into_iter().collect())
 }
 
 /// A proposal with its most recent user-supplied assessment.

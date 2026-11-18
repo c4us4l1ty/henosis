@@ -15,6 +15,25 @@ const ARTIFACT_LIMIT: u64 = 64 * 1024 * 1024;
 const RUN_LIMIT: Duration = Duration::from_secs(30);
 const DRAIN_LIMIT: Duration = Duration::from_secs(1);
 
+/// User-supplied command details, recorded before a run is attempted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Request {
+    pub project: String,
+    pub program: String,
+    pub arguments: Vec<String>,
+    pub artifact: String,
+    pub expected_exit: i32,
+}
+
+impl Request {
+    pub fn matches(&self, evidence: &Evidence) -> bool {
+        self.project == evidence.project && self.program == evidence.program
+            && self.arguments == evidence.arguments && self.artifact == evidence.artifact
+            && self.expected_exit == evidence.expected_exit
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Evidence {
