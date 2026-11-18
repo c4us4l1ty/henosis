@@ -18,7 +18,7 @@ jobs:
           exit ${PIPESTATUS[0]}
         shell: bash
       - run: |
-          grep -E '^(error|warning)(\[|:)|error\[' /tmp/cargo_output.txt | while IFS= read -r line; do
+          grep -E '^(error|warning)(\[|:)|^\s*-->|^\s*\| |^\s*\^|help:|note:' /tmp/cargo_output.txt | while IFS= read -r line; do
             echo "::error::${line}"
           done
         if: always()
