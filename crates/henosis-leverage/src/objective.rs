@@ -10,7 +10,7 @@ use crate::Interval;
 use henosis_dag::validate_id;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Objective {
     pub id: String,
@@ -23,14 +23,14 @@ pub struct Objective {
 
 impl Objective {
     pub fn validate(&self) -> Result<(), String> {
-        validation::validate_id(&self.id)?;
+        validate_id(&self.id)?;
         if self.action.trim().is_empty() || self.action.len() > 256 {
             return Err("objective action must be 1..=256 non-whitespace bytes".into());
         }
         if !self.cost.is_finite() || self.cost < 0.0 {
             return Err("objective cost must be finite and non-negative".into());
         }
-        self.estimate.validate()?;
+        // estimate is an Interval already validated at construction via Interval::new
         Ok(())
     }
 

@@ -68,7 +68,7 @@ impl LeverageOption {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OptionContext<'a> {
     pub dominance_reports: &'a [DominanceReport],
     pub wall_reports: &'a [RankedWall],
