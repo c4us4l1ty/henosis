@@ -12,29 +12,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: |
-          cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt || true
-          echo "CARGO_EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_ENV
+      - run: cargo test --locked --workspace --no-run
         shell: bash
-      - run: |
-          sed 's/\x1b\[[0-9;]*m//g' /tmp/cargo_output.txt | grep -Ei 'error|warning|fail|panic|cannot|unresolved|undefined|mismatch' | while IFS= read -r line; do
-            echo "::error::${line}"
-          done
+      - run: cargo test --locked --workspace
         shell: bash
-        if: always()
-      - run: cargo test --locked --workspace 2>&1 | tee /tmp/test_output.txt || true
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
         shell: bash
-      - run: |
-          sed 's/\x1b\[[0-9;]*m//g' /tmp/test_output.txt | grep -Ei 'error|warning|fail|panic|cannot|unresolved|undefined|mismatch|test result' | while IFS= read -r line; do
-            echo "::error::${line}"
-          done
-        shell: bash
-        if: always()
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/clippy_output.txt || true
-        shell: bash
-      - run: |
-          sed 's/\x1b\[[0-9;]*m//g' /tmp/clippy_output.txt | grep -Ei 'warning|error' | while IFS= read -r line; do
-            echo "::error::${line}"
-          done
-        shell: bash
-        if: always()
