@@ -147,3 +147,23 @@ fn workspace_backup_is_create_only_and_readable() {
     assert_eq!(henosis_crux::read(&directory.path().join("backup.jsonl")).unwrap().len(), 1);
     assert_eq!(henosis_crux::read(&directory.path().join("crux.jsonl")).unwrap().len(), 2);
 }
+
+#[test]
+fn trusted_experiment_is_recorded_and_visible_in_proposal_history() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("artifact"), b"abc").unwrap();
+    let project = directory.path().to_str().unwrap().replace('\\', "/");
+    let executable = env!("CARGO_BIN_EXE_henosis-shell").replace('\\', "/");
+    let input = format!("propose crux.jsonl goal hypothesis test\nrun crux.jsonl 1 \"{project}\" artifact 2 \"{executable}\" relative\nshow crux.jsonl 1\nexit\n");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
+        .current_dir(directory.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("COMMAND RESULT for 1 (not a verified capability)"), "{stdout}");
+    assert!(stdout.contains("Match: true"), "{stdout}");
+    assert!(stdout.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), "{stdout}");
+    assert_eq!(henosis_crux::read(&directory.path().join("crux.jsonl")).unwrap().len(), 2);
+}

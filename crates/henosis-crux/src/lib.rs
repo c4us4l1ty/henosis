@@ -14,6 +14,7 @@ pub enum Event {
     Observed { proposal: u64, outcome: String },
     Assessed { proposal: u64, information: u8, failure: u8, cost: u8 },
     StatusChanged { proposal: u64, closed: bool, reason: String },
+    CommandResult { proposal: u64, evidence: henosis_evidence::Evidence },
 }
 
 /// Maximum journal size accepted by this experimental implementation.
@@ -107,6 +108,7 @@ fn validate(events: &[Event], event: &Event) -> io::Result<()> {
     let valid = match event {
         Event::Proposed { goal, hypothesis, test } => nonempty(goal) && nonempty(hypothesis) && nonempty(test),
         Event::Observed { proposal, outcome } => nonempty(outcome) && is_proposal(proposal),
+        Event::CommandResult { proposal, .. } => is_proposal(proposal),
         Event::StatusChanged { proposal, reason, .. } => nonempty(reason) && is_proposal(proposal),
         Event::Assessed { proposal, information, failure, cost } => {
             is_proposal(proposal) && [*information, *failure, *cost].iter().all(|n| (1..=5).contains(n))
