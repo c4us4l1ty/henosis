@@ -16,7 +16,7 @@ jobs:
           set +eo pipefail
           cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt
           EXIT_CODE=${PIPESTATUS[0]}
-          grep -E '^(error|warning):' /tmp/cargo_output.txt | while IFS= read -r line; do
+          grep -E '^(error|warning)(\[|:)' /tmp/cargo_output.txt | while IFS= read -r line; do
             echo "::error::${line}"
           done
           exit $EXIT_CODE
