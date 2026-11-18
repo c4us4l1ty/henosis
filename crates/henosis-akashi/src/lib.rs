@@ -188,6 +188,7 @@ mod tests {
     #[cfg(unix)]
     use henosis_vault::Identity;
 
+    #[cfg(unix)]
     const PHRASE: &str =
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
