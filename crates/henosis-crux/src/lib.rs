@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(append(&path, Event::ExperimentStarted { proposal: 1, request: request.clone() }).unwrap(), 2);
         let evidence = henosis_evidence::Evidence {
             project: request.project.clone(), program: request.program.clone(), arguments: request.arguments.clone(), artifact: request.artifact.clone(), expected_exit: 0, env_keys: vec![],
-            exit_code: Some(0), timed_out: false, stdout: String::new(), stderr: String::new(),
+            exit_code: Some(0), timed_out: false, timeout_cleanup: None, stdout: String::new(), stderr: String::new(),
             stdout_truncated: false, stderr_truncated: false, stdout_lossy: Some(false), stderr_lossy: Some(false), output_incomplete: false,
             artifact_sha256: None, artifact_error: Some("missing".into()), artifact_before: None,
         };
@@ -343,11 +343,13 @@ mod tests {
         let evidence_json = serde_json::to_string(&evidence).unwrap();
         assert!(!evidence_json.contains("env_keys"));
         assert!(!evidence_json.contains("artifact_before"));
+        assert!(!evidence_json.contains("timeout_cleanup"));
         let legacy_evidence = serde_json::from_str::<henosis_evidence::Evidence>(&evidence_json).unwrap();
         assert_eq!(legacy_evidence, evidence);
         assert_eq!(legacy_evidence.artifact_change(), henosis_evidence::ArtifactChange::Unavailable);
         let mut recorded = evidence.clone();
         recorded.artifact_before = Some(henosis_evidence::ArtifactBefore::Hashed { sha256: "a".repeat(64) });
+        recorded.timeout_cleanup = Some(henosis_evidence::TimeoutCleanup::UnixProcessGroup { signal_error: Some("permission denied".into()) });
         let recorded_json = serde_json::to_string(&recorded).unwrap();
         assert_eq!(serde_json::from_str::<henosis_evidence::Evidence>(&recorded_json).unwrap(), recorded);
         recorded.artifact_error = None;

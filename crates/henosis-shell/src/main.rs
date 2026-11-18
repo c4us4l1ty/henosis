@@ -29,6 +29,13 @@ fn print_event(id: usize, event: &Event) {
         Event::ExperimentFailed { proposal, attempt, error } => println!("{}  RUNNER ERROR for proposal {}, attempt {} (command may have run)\n  Error: {}", id, proposal, attempt, terminal_text(error)),
         Event::CommandResult { proposal, attempt, evidence } => {
             let matched = !evidence.timed_out && evidence.exit_code == Some(evidence.expected_exit);
+            let cleanup = match &evidence.timeout_cleanup {
+                None => "not recorded (legacy result)".to_owned(),
+                Some(henosis_evidence::TimeoutCleanup::NotNeeded) => "not attempted (no timeout)".to_owned(),
+                Some(henosis_evidence::TimeoutCleanup::DirectChild) => "direct child only".to_owned(),
+                Some(henosis_evidence::TimeoutCleanup::UnixProcessGroup { signal_error: None }) => "Unix group signal sent; direct child reaped (not proof all descendants stopped)".to_owned(),
+                Some(henosis_evidence::TimeoutCleanup::UnixProcessGroup { signal_error: Some(error) }) => format!("Unix group signal failed: {}; direct child reaped", terminal_text(error)),
+            };
             let before = match &evidence.artifact_before {
                 Some(henosis_evidence::ArtifactBefore::NotFound) => "not found".to_owned(),
                 Some(henosis_evidence::ArtifactBefore::Hashed { sha256 }) => format!("SHA-256: {}", terminal_text(sha256)),
@@ -41,9 +48,9 @@ fn print_event(id: usize, event: &Event) {
                 henosis_evidence::ArtifactChange::Unchanged => "UNCHANGED",
                 henosis_evidence::ArtifactChange::Unavailable => "UNAVAILABLE",
             };
-            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Attempt: {:?}\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Environment names only: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Artifact: {}  SHA-256: {}\n  Artifact before: {}  Comparison: {} (observations, not proof of authorship)\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout lossy: {:?}  Stderr lossy: {:?} (None means unknown)\n  Stdout: {}\n  Stderr: {}", id, proposal, attempt,
+            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Attempt: {:?}\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Environment names only: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Timeout cleanup: {}\n  Artifact: {}  SHA-256: {}\n  Artifact before: {}  Comparison: {} (observations, not proof of authorship)\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout lossy: {:?}  Stderr lossy: {:?} (None means unknown)\n  Stdout: {}\n  Stderr: {}", id, proposal, attempt,
                 terminal_text(&evidence.project), terminal_text(&evidence.program), evidence.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(), evidence.env_keys.iter().map(|key| terminal_text(key)).collect::<Vec<_>>(),
-                evidence.expected_exit, evidence.exit_code, matched, evidence.timed_out, terminal_text(&evidence.artifact),
+                evidence.expected_exit, evidence.exit_code, matched, evidence.timed_out, cleanup, terminal_text(&evidence.artifact),
                 evidence.artifact_sha256.as_deref().map(terminal_text).unwrap_or_else(|| "unavailable".into()),
                 before, change,
                 evidence.artifact_error.as_deref().map(terminal_text).unwrap_or_else(|| "none".into()),

@@ -155,12 +155,21 @@ path relative to it, expected exit code, absolute executable, and arguments.
 Arguments are passed directly; no shell is invoked unless explicitly requested.
 The child receives an empty environment and no terminal input. This runs **trusted
 software only**, not a sandbox. It can read files, use the network, and launch
-descendants. A 30-second timeout kills only the direct child; descendants may
-continue. Output is drained but only the first 16 KiB per stream is retained. Invalid
+descendants. On Unix, experiments run in a separate process group; on the
+30-second timeout, Henosis attempts to send SIGKILL to that group and kills and
+reaps the direct child. A successful group signal is not proof that every
+descendant stopped: processes can leave the group. On Windows, timeout still
+kills only the direct child. Normal completion, setup errors, workspace crashes,
+and background `launch`/`stop` do not provide group cleanup. Descendants may
+continue on every platform. Output is drained but only the first 16 KiB per stream is retained. Invalid
 UTF-8 is replaced for display and storage, with a lossiness flag; older results
 may not include that flag.
 If descendants keep pipes open, capture stops waiting after one second and marks
-output incomplete; reader threads may persist until the pipes close.
+output incomplete; reader threads may persist until the pipes close. Results
+record whether timeout cleanup was attempted and any Unix group-signal error;
+if direct-child termination or waiting fails, a runner error is recorded instead.
+Older results do not have cleanup details, and older versions cannot read new
+results containing them.
 
 Henosis observes the artifact immediately before spawning the command and again
 after it exits. Each hash covers at most 64 MiB of one regular file. The result

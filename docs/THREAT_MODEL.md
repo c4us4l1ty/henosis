@@ -21,8 +21,11 @@ followed. Output can be truncated, incomplete, or written by descendants.
 ## Misuse and failure cases
 
 - A command or dependency reads local secrets or exfiltrates them over the network.
-- A process hangs or spawns descendants. Timeout kills only the direct child;
-  inherited output pipes can keep reader threads alive after the run returns.
+- A process hangs or spawns descendants. Unix experiment timeout sends a
+  best-effort group SIGKILL and terminates the direct child; escaped descendants
+  can survive, and a successful signal does not prove all stopped. On Windows,
+  only the direct child is terminated. Normal exit and setup failures do not
+  clean up descendants. Inherited output pipes can keep reader threads alive.
 - Crash, full disk, partial writes, or sync failure can lose or partially record
   an event; a failed append may have written data. Inspect before retrying.
 - Output contains secrets or terminal control sequences. Display escapes control

@@ -2,43 +2,38 @@
 
 ## Current behavior
 
-Henosis runs trusted software, not a sandbox. The evidence runner kills and
-reaps the **direct child** on timeout; its descendants may survive and may keep
-output pipes open. After a bounded drain wait, output is marked incomplete, but
-reader threads can remain until the pipes close. The background supervisor also
-stops only direct children. If Henosis is killed or crashes, its normal cleanup
-cannot be relied upon. Review of an unfinished attempt does not stop processes.
+Henosis runs trusted software, not a sandbox. On Unix, an experiment starts in a
+new process group. On timeout only, Henosis attempts SIGKILL on the group before
+reaping the leader, then separately kills and reaps the direct child. The result
+records a group signal error separately; success means only that the OS accepted
+the signal, not that all descendants stopped. If killing or waiting on the direct
+child fails, the runner reports an error including the cleanup attempt instead of
+claiming a completed result. On Windows, timeout still handles only the direct
+child. Old records do not contain cleanup details.
 
-## Candidate design (not implemented)
+Group cleanup is not attempted after normal child exit or reader setup failure.
+Descendants can leave the group, and inherited pipes can hold reader threads open
+past the bounded drain wait. The background supervisor still stops only direct
+children. If Henosis crashes or is killed, normal cleanup cannot be relied upon.
+Review of an unfinished attempt does not stop processes.
 
-Make process-tree cleanup an explicit, best-effort execution policy. Decide
-whether descendants should be terminated after a successful direct-child exit
-as well as on timeout, stop, and normal workspace shutdown; changing this could
-break commands that intentionally leave services running. Keep direct-child
-status, timeout, cleanup attempted/failed, and incomplete output distinct in
-evidence. An inability to establish the requested containment must be visible,
-not silently presented as successful tree cleanup.
+## Future work (not implemented)
 
-* **Unix:** start the child in a dedicated process group before execution, and
-  signal that group while managing the direct child's wait/reap. A group is not
-  containment: descendants may move groups or sessions, and parent termination
-  does not automatically kill the group. Avoid signaling a recycled numeric
-  process-group ID after the group has disappeared; lifecycle, reaping, and
-  concurrency need careful design. Unix group APIs and portable signaling need a
-  reviewed safe wrapper compatible with the workspace's `deny(unsafe_code)`.
-* **Windows:** investigate a Job Object configured for kill-on-close, using a
-  reviewed safe wrapper. Avoid a spawn-then-assign gap where the child can
-  create descendants before assignment; assess suspended creation/assignment,
-  nested-job restrictions, breakaway settings, and handle inheritance. Assignment
-  failure must have a defined fail-closed or explicitly downgraded outcome.
-  Kill-on-close behavior depends on ownership and handle lifetime, and is not a
-  sandbox or a guarantee against every escape.
+Decide whether descendants should be terminated after a successful direct-child
+exit, on setup failure, explicit stop, and workspace shutdown; changing this can
+break commands that intentionally leave services running. Never signal a group
+ID after its leader is reaped: IDs may be recycled. Account for processes that
+move groups or sessions, and surface teardown failures. Group signaling is not
+containment and should not be marketed as a sandbox.
 
-Prototype each platform independently before promising equivalent behavior.
-Consider separate policies for interactive/background launches and experiments.
-Bound teardown and output draining; surface failures rather than claiming every
-process was terminated. Do not call platform-specific APIs through unsafe code
-in these crates without an explicit, separately reviewed change to that policy.
+On Windows, investigate a Job Object configured for kill-on-close, using a
+reviewed safe wrapper. Avoid a spawn-then-assign gap where the child can create
+descendants before assignment; assess suspended creation/assignment, nested-job
+restrictions, breakaway settings, and handle inheritance. Assignment failure
+must have a defined fail-closed or explicitly downgraded outcome. Kill-on-close
+behavior depends on ownership and handle lifetime, and is not a sandbox or a
+guarantee against every escape. Consider separate policies for background
+launches and experiments. Preserve the workspace's `deny(unsafe_code)` policy.
 
 ## Validation before shipping
 
