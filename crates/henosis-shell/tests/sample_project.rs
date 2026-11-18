@@ -35,8 +35,11 @@ fn sample_project_evidence_and_interruption_workflow() {
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let output = Command::new(rustc).arg("--edition=2021").arg(&source).arg("-o").arg(&binary).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let project = shell_words::quote(dir.path().to_str().unwrap());
-    let executable = shell_words::quote(binary.to_str().unwrap());
+    // Backslashes are shell escapes on the runner side; normalize so the quoted
+    // path survives shell_words::split on every platform (mirrors the other
+    // shell integration tests).
+    let project = format!("\"{}\"", dir.path().to_str().unwrap().replace('\\', "/"));
+    let executable = format!("\"{}\"", binary.to_str().unwrap().replace('\\', "/"));
     let commands = format!("propose journal.jsonl goal hypothesis test\nrun journal.jsonl 1 {project} result.txt 0 {executable}\nshow journal.jsonl 1\ncompare journal.jsonl 3\nexit\n");
     let output = shell(dir.path(), &commands);
     assert!(output.status.success());
