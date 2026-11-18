@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 // User-controlled text must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
@@ -25,6 +25,7 @@ fn print_event(id: usize, event: &Event) {
         Event::Observed { proposal, outcome } => println!("{}  OBSERVATION for {} (unverified)\n  Outcome: {}", id, proposal, terminal_text(outcome)),
         Event::Assessed { proposal, information, failure, cost } => println!("{}  ASSESSMENT for {} (subjective)\n  Information: {}  Failure: {}  Cost: {}", id, proposal, information, failure, cost),
         Event::ExperimentStarted { proposal, request } => println!("{}  ATTEMPT for {} (recorded before execution; outcome unknown until a result is recorded)\n  Project: {}  Program: {}\n  Arguments: {:?}  Artifact: {}  Expected exit: {}", id, proposal, terminal_text(&request.project), terminal_text(&request.program), request.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(), terminal_text(&request.artifact), request.expected_exit),
+        Event::AttemptReviewed { proposal, attempt, note } => println!("{}  USER REVIEW for proposal {}, attempt {} (not a command result)\n  Note: {}", id, proposal, attempt, terminal_text(note)),
         Event::ExperimentFailed { proposal, attempt, error } => println!("{}  RUNNER ERROR for proposal {}, attempt {} (command may have run)\n  Error: {}", id, proposal, attempt, terminal_text(error)),
         Event::CommandResult { proposal, attempt, evidence } => {
             let matched = !evidence.timed_out && evidence.exit_code == Some(evidence.expected_exit);
@@ -181,7 +182,7 @@ fn workspace() -> io::Result<()> {
                             Some(event @ Event::Proposed { .. }) => {
                                 print_event(usize::try_from(id).expect("validated proposal ID"), event);
                                 for (index, event) in events.iter().enumerate() {
-                                    if matches!(event, Event::Observed { proposal, .. } | Event::Assessed { proposal, .. } | Event::StatusChanged { proposal, .. } | Event::ExperimentStarted { proposal, .. } | Event::ExperimentFailed { proposal, .. } | Event::CommandResult { proposal, .. } if *proposal == id) {
+                                    if matches!(event, Event::Observed { proposal, .. } | Event::Assessed { proposal, .. } | Event::StatusChanged { proposal, .. } | Event::ExperimentStarted { proposal, .. } | Event::ExperimentFailed { proposal, .. } | Event::AttemptReviewed { proposal, .. } | Event::CommandResult { proposal, .. } if *proposal == id) {
                                         print_event(index + 1, event);
                                     }
                                 }
@@ -209,10 +210,41 @@ fn workspace() -> io::Result<()> {
                 },
                 Err(_) => eprintln!("Result ID must be a number."),
             },
-            "pending" if words.len() == 2 => match henosis_crux::read(Path::new(&words[1])).and_then(|events| henosis_crux::unfinished(&events)) {
-                Ok(attempts) if attempts.is_empty() => println!("No unfinished attempts."),
-                Ok(attempts) => for (attempt, proposal) in attempts {
-                    println!("Attempt {attempt} for proposal {proposal}: outcome not recorded; command may have run. Inspect before retrying.");
+            "review" if words.len() == 4 => match words[2].parse::<u64>() {
+                Ok(attempt) => {
+                    let path = Path::new(&words[1]);
+                    match henosis_crux::read(path) {
+                        Ok(events) => {
+                            let started = attempt.checked_sub(1).and_then(|n| usize::try_from(n).ok()).and_then(|n| events.get(n));
+                            match started {
+                                Some(Event::ExperimentStarted { proposal, .. }) => {
+                                    let review = Event::AttemptReviewed { proposal: *proposal, attempt, note: words[3].clone() };
+                                    match henosis_crux::append(path, review) {
+                                        Ok(id) => println!("Recorded user review {id}; this does not establish an outcome."),
+                                        Err(error) => eprintln!("Could not record review: {error}"),
+                                    }
+                                },
+                                _ => eprintln!("No attempt with ID {attempt}."),
+                            }
+                        },
+                        Err(error) => eprintln!("Could not read journal: {error}"),
+                    }
+                },
+                Err(_) => eprintln!("Attempt ID must be a number."),
+            },
+            "pending" if words.len() == 2 => match henosis_crux::read(Path::new(&words[1])) {
+                Ok(events) => match henosis_crux::unfinished(&events) {
+                    Ok(attempts) if attempts.is_empty() => println!("No unfinished attempts."),
+                    Ok(attempts) => {
+                        let reviewed: std::collections::HashSet<u64> = events.iter().filter_map(|event| match event {
+                            Event::AttemptReviewed { attempt, .. } => Some(*attempt),
+                            _ => None,
+                        }).collect();
+                        for (attempt, proposal) in attempts {
+                            println!("Attempt {attempt} for proposal {proposal}: outcome not recorded; command may have run. Inspect before retrying.{}", if reviewed.contains(&attempt) { " User review recorded; outcome remains unknown." } else { "" });
+                        }
+                    },
+                    Err(error) => eprintln!("Could not inspect attempts: {error}"),
                 },
                 Err(error) => eprintln!("Could not inspect attempts: {error}"),
             },

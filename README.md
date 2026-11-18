@@ -196,3 +196,10 @@ malformed recorded hash, or file larger than 64 MiB produces an error, not a
 match. The project must be trusted; symlinks are followed, the file can change
 while being read, and the journal can be edited. A match is not proof of who
 created the file, correctness, cleanroom conditions, or verified capability.
+
+After inspecting an unfinished attempt, `review FILE ATTEMPT_ID "your note"`
+records a user-authored recovery note in the proposal history. `pending` marks
+reviewed attempts but continues to list them until a command result or runner
+error is recorded. A note does not stop the process, establish an outcome, or
+make a retry safe; the command might still be running. Later command results
+remain valid. Notes are plaintext, and older Henosis versions cannot read them.
