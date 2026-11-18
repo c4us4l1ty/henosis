@@ -12,6 +12,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo test --locked --workspace --no-run || true
-      - run: cargo test --locked --workspace || true
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings || true
+      - run: cargo test --locked --workspace --no-run
+      - run: cargo test --locked --workspace
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/clippy_output.txt || true
+      - run: |
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/clippy_output.txt | grep -Ei 'warning|error' | while IFS= read -r line; do
+            echo "::error::${line}"
+          done || true
+        shell: bash
+        if: always()
