@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -60,8 +60,8 @@ pub struct Evidence {
 #[derive(Default)]
 struct Capture { bytes: Vec<u8>, truncated: bool, failed: bool }
 
-fn drain<R: Read + Send + 'static>(mut reader: R, state: Arc<Mutex<Capture>>, done: mpsc::Sender<()>) {
-    std::thread::spawn(move || {
+fn drain<R: Read + Send + 'static>(mut reader: R, state: Arc<Mutex<Capture>>, done: mpsc::Sender<()>) -> io::Result<()> {
+    std::thread::Builder::new().spawn(move || {
         let mut buffer = [0; 8192];
         loop {
             match reader.read(&mut buffer) {
@@ -77,7 +77,26 @@ fn drain<R: Read + Send + 'static>(mut reader: R, state: Arc<Mutex<Capture>>, do
             }
         }
         let _ = done.send(());
-    });
+    })?;
+    Ok(())
+}
+
+// If setting up either reader fails, terminate and reap the direct child when
+// possible. Killing descendants is outside this runner's security boundary.
+fn start_readers<F>(child: &mut Child, stdout: Arc<Mutex<Capture>>, stderr: Arc<Mutex<Capture>>, send: mpsc::Sender<()>, mut start: F) -> io::Result<()>
+where F: FnMut(Box<dyn Read + Send>, Arc<Mutex<Capture>>, mpsc::Sender<()>) -> io::Result<()> {
+    let result = (|| {
+        let out = child.stdout.take().ok_or_else(|| io::Error::other("missing stdout pipe"))?;
+        let err = child.stderr.take().ok_or_else(|| io::Error::other("missing stderr pipe"))?;
+        start(Box::new(out), stdout, send.clone())?;
+        start(Box::new(err), stderr, send)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        if child.kill().is_ok() { let _ = child.wait(); }
+        else { let _ = child.try_wait(); }
+    }
+    result
 }
 
 fn artifact_hash(path: &Path) -> io::Result<String> {
@@ -156,8 +175,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
     let stdout = Arc::new(Mutex::new(Capture::default()));
     let stderr = Arc::new(Mutex::new(Capture::default()));
     let (send, recv) = mpsc::channel();
-    drain(child.stdout.take().expect("piped stdout"), Arc::clone(&stdout), send.clone());
-    drain(child.stderr.take().expect("piped stderr"), Arc::clone(&stderr), send);
+    start_readers(&mut child, Arc::clone(&stdout), Arc::clone(&stderr), send, drain)?;
     let deadline = Instant::now() + limits.0;
     let (status, timed_out) = loop {
         match child.try_wait() {
@@ -262,6 +280,23 @@ mod tests {
         assert!(result.stdout_truncated);
         assert!(result.artifact_sha256.is_none());
         assert!(result.artifact_error.is_some());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn reader_setup_failure_stops_and_reaps_direct_child() {
+        for failing_call in [1, 2] {
+            let mut child = Command::new("/bin/sleep").arg("30").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+            let (send, _recv) = mpsc::channel();
+            let mut calls = 0;
+            let result = start_readers(&mut child, Arc::new(Mutex::new(Capture::default())), Arc::new(Mutex::new(Capture::default())), send,
+                |reader, state, sender| {
+                    calls += 1;
+                    if calls == failing_call { Err(io::Error::other("simulated thread creation failure")) }
+                    else { drain(reader, state, sender) }
+                });
+            assert!(result.is_err());
+            assert!(child.try_wait().unwrap().is_some());
+        }
     }
     #[cfg(unix)]
     #[test]
