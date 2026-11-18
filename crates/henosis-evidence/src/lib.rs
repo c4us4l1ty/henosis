@@ -60,6 +60,33 @@ pub struct Evidence {
     pub output_incomplete: bool,
     pub artifact_sha256: Option<String>,
     pub artifact_error: Option<String>,
+    /// None for evidence recorded before pre-run observations were introduced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_before: Option<ArtifactBefore>,
+}
+
+/// An observation made immediately before starting the child, not an attestation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ArtifactBefore {
+    NotFound,
+    Hashed { sha256: String },
+    Unavailable { error: String },
+}
+
+/// Comparison of observed bytes; it does not establish who changed the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtifactChange { Appeared, Changed, Unchanged, Unavailable }
+
+impl Evidence {
+    pub fn artifact_change(&self) -> ArtifactChange {
+        match (&self.artifact_before, &self.artifact_sha256, &self.artifact_error) {
+            (Some(ArtifactBefore::NotFound), Some(_), None) => ArtifactChange::Appeared,
+            (Some(ArtifactBefore::Hashed { sha256 }), Some(after), None) if sha256 == after => ArtifactChange::Unchanged,
+            (Some(ArtifactBefore::Hashed { .. }), Some(_), None) => ArtifactChange::Changed,
+            _ => ArtifactChange::Unavailable,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -211,6 +238,11 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "program must be an absolute path"));
     }
     let artifact_path = checked_artifact_path(project, artifact)?;
+    let artifact_before = match artifact_hash(&artifact_path) {
+        Ok(sha256) => ArtifactBefore::Hashed { sha256 },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => ArtifactBefore::NotFound,
+        Err(error) => ArtifactBefore::Unavailable { error: error.to_string() },
+    };
     let mut child = Command::new(executable).args(arguments).current_dir(directory).env_clear()
         .envs(environment.iter().map(|(key, value)| (key, value)))
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
@@ -263,7 +295,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
         stdout_truncated, stderr_truncated,
         stdout_lossy: Some(stdout_lossy), stderr_lossy: Some(stderr_lossy),
         output_incomplete: finished != 2 || stdout_failed || stderr_failed,
-        artifact_sha256, artifact_error,
+        artifact_sha256, artifact_error, artifact_before: Some(artifact_before),
     })
 }
 

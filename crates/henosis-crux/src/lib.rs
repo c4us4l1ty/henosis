@@ -319,7 +319,7 @@ mod tests {
             project: request.project.clone(), program: request.program.clone(), arguments: request.arguments.clone(), artifact: request.artifact.clone(), expected_exit: 0, env_keys: vec![],
             exit_code: Some(0), timed_out: false, stdout: String::new(), stderr: String::new(),
             stdout_truncated: false, stderr_truncated: false, stdout_lossy: Some(false), stderr_lossy: Some(false), output_incomplete: false,
-            artifact_sha256: None, artifact_error: Some("missing".into()),
+            artifact_sha256: None, artifact_error: Some("missing".into()), artifact_before: None,
         };
         assert_eq!(unfinished(&read(&path).unwrap()).unwrap(), vec![(2, 1)]);
         assert!(append(&path, Event::AttemptReviewed { proposal: 1, attempt: 1, note: "x".into() }).is_err());
