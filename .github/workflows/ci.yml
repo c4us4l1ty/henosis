@@ -12,5 +12,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - run: |
+          cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt
+          echo "CARGO_EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_ENV
+          exit ${PIPESTATUS[0]}
+        shell: bash
+      - run: |
+          tail -50 /tmp/cargo_output.txt | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+        if: always()
       - run: cargo test --locked --workspace
+        if: env.CARGO_EXIT_CODE == '0'
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        if: env.CARGO_EXIT_CODE == '0'
