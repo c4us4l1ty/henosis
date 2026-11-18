@@ -3,6 +3,7 @@
 //! Records and estimates are user assertions, not verified capabilities.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -49,15 +50,17 @@ fn snapshot(file: &File) -> io::Result<(Vec<Event>, Vec<u8>)> {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "truncated journal line"));
     }
     let mut events = Vec::new();
+    let mut resolved = HashSet::new();
     for (index, line) in bytes.strip_suffix(b"\n").unwrap_or(&[]).split(|byte| *byte == b'\n').enumerate() {
         if bytes.is_empty() { break; }
         let number = index + 1;
         let event: Event = serde_json::from_slice(line).map_err(|error| {
             io::Error::new(io::ErrorKind::InvalidData, format!("invalid journal line {number}: {error}"))
         })?;
-        validate(&events, &event).map_err(|error| {
+        validate(&events, &event, &resolved).map_err(|error| {
             io::Error::new(io::ErrorKind::InvalidData, format!("invalid journal line {number}: {error}"))
         })?;
+        if let Some(attempt) = resolved_attempt(&event) { resolved.insert(attempt); }
         events.push(event);
     }
     Ok((events, bytes))
@@ -101,7 +104,17 @@ pub fn backup(source: &Path, destination: &Path) -> io::Result<usize> {
     Ok(events.len())
 }
 
-fn validate(events: &[Event], event: &Event) -> io::Result<()> {
+fn resolved_attempt(event: &Event) -> Option<u64> {
+    match event {
+        Event::ExperimentFailed { attempt, .. } | Event::CommandResult { attempt: Some(attempt), .. } => Some(*attempt),
+        _ => None,
+    }
+}
+
+fn validate(events: &[Event], event: &Event, resolved: &HashSet<u64>) -> io::Result<()> {
+    if resolved_attempt(event).is_some_and(|id| resolved.contains(&id)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "attempt already has a recorded outcome"));
+    }
     let nonempty = |s: &str| !s.trim().is_empty();
     let is_proposal = |id: &u64| id.checked_sub(1)
         .and_then(|n| usize::try_from(n).ok())
@@ -134,8 +147,10 @@ fn validate(events: &[Event], event: &Event) -> io::Result<()> {
 pub fn unfinished(events: &[Event]) -> io::Result<Vec<(u64, u64)>> {
     use std::collections::BTreeMap;
     let mut pending = BTreeMap::new();
+    let mut resolved = HashSet::new();
     for (index, event) in events.iter().enumerate() {
-        validate(&events[..index], event)?;
+        validate(&events[..index], event, &resolved)?;
+        if let Some(attempt) = resolved_attempt(event) { resolved.insert(attempt); }
         match event {
             Event::ExperimentStarted { proposal, .. } => {
                 let id = u64::try_from(index).ok().and_then(|n| n.checked_add(1))
@@ -170,8 +185,10 @@ pub fn rank(events: &[Event]) -> io::Result<Vec<RankedProposal>> {
     use std::collections::BTreeMap;
     let mut assessments = BTreeMap::new();
     let mut statuses = BTreeMap::new();
+    let mut resolved = HashSet::new();
     for (index, event) in events.iter().enumerate() {
-        validate(&events[..index], event)?;
+        validate(&events[..index], event, &resolved)?;
+        if let Some(attempt) = resolved_attempt(event) { resolved.insert(attempt); }
         if let Event::Assessed { proposal, information, failure, cost } = event {
             assessments.insert(*proposal, (*information, *failure, *cost));
         }
@@ -224,7 +241,7 @@ impl Write for RecordBuffer {
 /// failure; inspect the journal before retrying. Directory creation is not synced.
 pub fn append(path: &Path, event: Event) -> io::Result<u64> {
     // Reject invalid proposals before creating a new file.
-    if matches!(&event, Event::Proposed { .. }) { validate(&[], &event)?; }
+    if matches!(&event, Event::Proposed { .. }) { validate(&[], &event, &HashSet::new())?; }
     let mut buffer = RecordBuffer { bytes: Vec::new(), exceeded: false };
     if let Err(error) = serde_json::to_writer(&mut buffer, &event) {
         return Err(if buffer.exceeded {
@@ -250,7 +267,8 @@ pub fn append(path: &Path, event: Event) -> io::Result<u64> {
     }
     fs2::FileExt::lock_exclusive(&file)?;
     let events = read_file(&file)?;
-    validate(&events, &event)?;
+    let resolved = events.iter().filter_map(resolved_attempt).collect();
+    validate(&events, &event, &resolved)?;
     let id = u64::try_from(events.len()).ok().and_then(|n| n.checked_add(1))
         .ok_or_else(|| io::Error::other("journal is too large"))?;
     if file.metadata()?.len().saturating_add(record.len() as u64) > MAX_JOURNAL_BYTES {
@@ -303,6 +321,8 @@ mod tests {
         assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 1, error: "bad".into() }).is_err());
         assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).unwrap(), 3);
         assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());
+        assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 2, error: "duplicate".into() }).is_err());
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).is_err());
         // Earlier journals have no attempt field; they remain readable.
         let mut legacy = serde_json::to_value(Event::CommandResult { proposal: 1, attempt: None, evidence }).unwrap();
         assert!(legacy.as_object_mut().unwrap().remove("attempt").is_none());
