@@ -278,7 +278,6 @@ impl<'a> Search<'a> {
 fn verify_functor(
     source: &StructuralSignature,
     target: &StructuralSignature,
-    mapping: &BTreeMap<String, String>,
 ) -> Vec<AlgebraicProperty> {
     let mut missing = Vec::new();
     for prop in &source.properties {
@@ -321,7 +320,7 @@ pub fn solve_functor(
 
     let mut search = Search::new(source, target);
     let mapping = search.recurse().ok_or(RejectionReason::UnboundedSearch)?;
-    let missing = verify_functor(source, target, &mapping);
+    let missing = verify_functor(source, target);
     if !missing.is_empty() {
         return Err(RejectionReason::PropertyNotPreserved);
     }
