@@ -227,7 +227,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("artifact");
         std::fs::write(&path, b"abc").unwrap();
-        let mut evidence = run(dir.path().to_str().unwrap(), "artifact", 0, "/bin/true", &[]).unwrap();
+        let mut evidence = run(dir.path().to_str().unwrap(), "artifact", 0, "/bin/sh", &["-c".into(), "exit 0".into()]).unwrap();
         assert!(compare_artifact(&evidence).unwrap().matches);
         std::fs::write(&path, b"changed").unwrap();
         let changed = compare_artifact(&evidence).unwrap();

@@ -12,10 +12,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          cargo test --locked --workspace --color never > ci-test.log 2>&1 || { python3 -c 'import base64; print("::error title=TestOutput::" + base64.b64encode(open("ci-test.log", "rb").read()[-2800:]).decode())'; exit 1; }
-      - if: runner.os != 'macOS'
-        run: cargo test --locked --workspace
+      - run: cargo test --locked --workspace
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
