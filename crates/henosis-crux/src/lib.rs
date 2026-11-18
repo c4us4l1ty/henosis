@@ -17,6 +17,7 @@ pub enum Event {
     StatusChanged { proposal: u64, closed: bool, reason: String },
     ExperimentStarted { proposal: u64, request: henosis_evidence::Request },
     ExperimentFailed { proposal: u64, attempt: u64, error: String },
+    AttemptReviewed { proposal: u64, attempt: u64, note: String },
     CommandResult { proposal: u64, #[serde(default, skip_serializing_if = "Option::is_none")] attempt: Option<u64>, evidence: henosis_evidence::Evidence },
 }
 
@@ -130,9 +131,12 @@ fn validate(events: &[Event], event: &Event, resolved: &HashSet<u64>) -> io::Res
     let valid = match event {
         Event::Proposed { goal, hypothesis, test } => nonempty(goal) && nonempty(hypothesis) && nonempty(test),
         Event::Observed { proposal, outcome } => nonempty(outcome) && is_proposal(proposal),
-        Event::ExperimentStarted { proposal, request } => is_proposal(proposal) && nonempty(&request.project) && nonempty(&request.program) && nonempty(&request.artifact),
+        Event::ExperimentStarted { proposal, request } => is_proposal(proposal) && nonempty(&request.project) && nonempty(&request.program) && nonempty(&request.artifact)
+            && henosis_evidence::validate_env_keys(&request.env_keys).is_ok(),
         Event::ExperimentFailed { proposal, attempt, error } => is_proposal(proposal) && nonempty(error) && attempt_request(*attempt, *proposal).is_some(),
+        Event::AttemptReviewed { proposal, attempt, note } => is_proposal(proposal) && nonempty(note) && attempt_request(*attempt, *proposal).is_some(),
         Event::CommandResult { proposal, attempt, evidence } => is_proposal(proposal)
+            && henosis_evidence::validate_env_keys(&evidence.env_keys).is_ok()
             && attempt.is_none_or(|id| attempt_request(id, *proposal).is_some_and(|request| request.matches(evidence))),
         Event::StatusChanged { proposal, reason, .. } => nonempty(reason) && is_proposal(proposal),
         Event::Assessed { proposal, information, failure, cost } => {
@@ -306,20 +310,41 @@ mod tests {
     fn unfinished_attempts_track_results_and_reject_mismatched_references() {
         let path = path();
         append(&path, proposal()).unwrap();
-        let request = henosis_evidence::Request { project: "/project".into(), program: "/tool".into(), arguments: vec!["arg".into()], artifact: "out".into(), expected_exit: 0 };
+        let request = henosis_evidence::Request { project: "/project".into(), program: "/tool".into(), arguments: vec!["arg".into()], artifact: "out".into(), expected_exit: 0, env_keys: vec![] };
+        let mut invalid_request = request.clone();
+        invalid_request.env_keys = vec!["SECRET=value".into()];
+        assert!(append(&path, Event::ExperimentStarted { proposal: 1, request: invalid_request }).is_err());
         assert_eq!(append(&path, Event::ExperimentStarted { proposal: 1, request: request.clone() }).unwrap(), 2);
         let evidence = henosis_evidence::Evidence {
-            project: request.project.clone(), program: request.program.clone(), arguments: request.arguments.clone(), artifact: request.artifact.clone(), expected_exit: 0,
+            project: request.project.clone(), program: request.program.clone(), arguments: request.arguments.clone(), artifact: request.artifact.clone(), expected_exit: 0, env_keys: vec![],
             exit_code: Some(0), timed_out: false, stdout: String::new(), stderr: String::new(),
             stdout_truncated: false, stderr_truncated: false, stdout_lossy: Some(false), stderr_lossy: Some(false), output_incomplete: false,
             artifact_sha256: None, artifact_error: Some("missing".into()),
         };
         assert_eq!(unfinished(&read(&path).unwrap()).unwrap(), vec![(2, 1)]);
+        assert!(append(&path, Event::AttemptReviewed { proposal: 1, attempt: 1, note: "x".into() }).is_err());
+        assert!(append(&path, Event::AttemptReviewed { proposal: 1, attempt: 2, note: " ".into() }).is_err());
+        // Reviews are observations, not outcomes; a later result is still valid.
+        let review = Event::AttemptReviewed { proposal: 1, attempt: 2, note: "inspected".into() };
+        assert_eq!(append(&path, review).unwrap(), 3);
+        assert_eq!(unfinished(&read(&path).unwrap()).unwrap(), vec![(2, 1)]);
         let mut bad = evidence.clone();
         bad.program = "/different".into();
         assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: bad }).is_err());
+        let mut bad_env = evidence.clone();
+        bad_env.env_keys.push("EXTRA".into());
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: bad_env }).is_err());
+        let mut invalid_evidence = evidence.clone();
+        invalid_evidence.env_keys = vec!["DUPLICATE".into(), "DUPLICATE".into()];
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: None, evidence: invalid_evidence }).is_err());
+        let request_json = serde_json::to_string(&request).unwrap();
+        assert!(!request_json.contains("env_keys"));
+        assert_eq!(serde_json::from_str::<henosis_evidence::Request>(&request_json).unwrap(), request);
+        let evidence_json = serde_json::to_string(&evidence).unwrap();
+        assert!(!evidence_json.contains("env_keys"));
+        assert_eq!(serde_json::from_str::<henosis_evidence::Evidence>(&evidence_json).unwrap(), evidence);
         assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 1, error: "bad".into() }).is_err());
-        assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).unwrap(), 3);
+        assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).unwrap(), 4);
         assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());
         assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 2, error: "duplicate".into() }).is_err());
         assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).is_err());
@@ -328,8 +353,8 @@ mod tests {
         assert!(legacy.as_object_mut().unwrap().remove("attempt").is_none());
         let decoded: Event = serde_json::from_value(legacy).unwrap();
         assert!(matches!(decoded, Event::CommandResult { attempt: None, .. }));
-        assert_eq!(append(&path, Event::ExperimentStarted { proposal: 1, request }).unwrap(), 4);
-        append(&path, Event::ExperimentFailed { proposal: 1, attempt: 4, error: "spawn failed".into() }).unwrap();
+        assert_eq!(append(&path, Event::ExperimentStarted { proposal: 1, request }).unwrap(), 5);
+        append(&path, Event::ExperimentFailed { proposal: 1, attempt: 5, error: "spawn failed".into() }).unwrap();
         assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());
         std::fs::remove_file(path).unwrap();
     }

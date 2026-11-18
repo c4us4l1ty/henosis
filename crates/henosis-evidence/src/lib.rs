@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
@@ -24,13 +25,15 @@ pub struct Request {
     pub arguments: Vec<String>,
     pub artifact: String,
     pub expected_exit: i32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_keys: Vec<String>,
 }
 
 impl Request {
     pub fn matches(&self, evidence: &Evidence) -> bool {
         self.project == evidence.project && self.program == evidence.program
             && self.arguments == evidence.arguments && self.artifact == evidence.artifact
-            && self.expected_exit == evidence.expected_exit
+            && self.expected_exit == evidence.expected_exit && self.env_keys == evidence.env_keys
     }
 }
 
@@ -42,6 +45,8 @@ pub struct Evidence {
     pub arguments: Vec<String>,
     pub artifact: String,
     pub expected_exit: i32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_keys: Vec<String>,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
     pub stdout: String,
@@ -157,15 +162,49 @@ pub fn compare_artifact(evidence: &Evidence) -> io::Result<ArtifactComparison> {
     Ok(ArtifactComparison { recorded: recorded.to_owned(), matches: recorded == current, current })
 }
 
+/// Validate explicit environment names before resolving or passing values.
+/// Names are upper-case ASCII identifiers to avoid platform case ambiguities.
+/// Validation cannot determine whether a value is secret.
+pub fn validate_env_keys(keys: &[String]) -> io::Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    if keys.len() > 32 { return Err(io::Error::new(io::ErrorKind::InvalidInput, "at most 32 environment names are allowed")); }
+    for key in keys {
+        let valid = !key.is_empty() && key.len() <= 128 && key.bytes().enumerate().all(|(i, c)| {
+            c.is_ascii_uppercase() || c == b'_' || (i > 0 && c.is_ascii_digit())
+        });
+        if !valid || !seen.insert(key) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "environment names must be unique uppercase ASCII identifiers"));
+        }
+    }
+    Ok(())
+}
+
+/// Resolve explicitly selected names from the parent. Missing names are errors.
+/// Values are not put into evidence, but the child can print or transmit them.
+pub fn resolve_parent_environment(keys: &[String]) -> io::Result<Vec<(String, OsString)>> {
+    validate_env_keys(keys)?;
+    keys.iter().map(|key| std::env::var_os(key).map(|value| (key.clone(), value))
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("environment variable {key} is not set")))).collect()
+}
+
+/// Run a trusted program with only explicitly supplied environment entries.
+/// Their names, but not values, are recorded. Never pass secrets: the program
+/// and descendants can access or print them, and output is stored in plaintext.
+pub fn run_with_env(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], environment: &[(String, OsString)]) -> io::Result<Evidence> {
+    let keys: Vec<String> = environment.iter().map(|(key, _)| key.clone()).collect();
+    validate_env_keys(&keys)?;
+    run_inner(project, artifact, expected_exit, program, arguments, environment, (RUN_LIMIT, DRAIN_LIMIT))
+}
+
 /// Run a trusted executable with an empty environment. Output is drained while
 /// the process runs but retained only up to 16 KiB per stream. The 30-second
 /// timeout kills the direct child only. Descendants are not contained.
 /// An artifact hash is an observation of bytes read after exit, not attestation.
 pub fn run(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String]) -> io::Result<Evidence> {
-    run_inner(project, artifact, expected_exit, program, arguments, (RUN_LIMIT, DRAIN_LIMIT))
+    run_with_env(project, artifact, expected_exit, program, arguments, &[])
 }
 
-fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], limits: (Duration, Duration)) -> io::Result<Evidence> {
+fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], environment: &[(String, OsString)], limits: (Duration, Duration)) -> io::Result<Evidence> {
     let directory = Path::new(project);
     let executable = Path::new(program);
     if !executable.is_absolute() {
@@ -173,6 +212,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
     }
     let artifact_path = checked_artifact_path(project, artifact)?;
     let mut child = Command::new(executable).args(arguments).current_dir(directory).env_clear()
+        .envs(environment.iter().map(|(key, value)| (key, value)))
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let stdout = Arc::new(Mutex::new(Capture::default()));
     let stderr = Arc::new(Mutex::new(Capture::default()));
@@ -217,6 +257,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
     let (artifact_sha256, artifact_error) = match hash { Ok(hash) => (Some(hash), None), Err(error) => (None, Some(error.to_string())) };
     Ok(Evidence {
         project: project.into(), program: program.into(), arguments: arguments.to_vec(), artifact: artifact.into(), expected_exit,
+        env_keys: environment.iter().map(|(key, _)| key.clone()).collect(),
         exit_code: status.code(), timed_out,
         stdout: stdout_text, stderr: stderr_text,
         stdout_truncated, stderr_truncated,
@@ -319,7 +360,7 @@ mod tests {
     #[test]
     fn timeout_reaps_direct_child_and_records_missing_artifact() {
         let dir = tempfile::tempdir().unwrap();
-        let result = run_inner(dir.path().to_str().unwrap(), "missing", 0, "/bin/sleep", &["10".into()], (Duration::from_millis(100), Duration::from_secs(1))).unwrap();
+        let result = run_inner(dir.path().to_str().unwrap(), "missing", 0, "/bin/sleep", &["10".into()], &[], (Duration::from_millis(100), Duration::from_secs(1))).unwrap();
         assert!(result.timed_out);
         assert_ne!(result.exit_code, Some(0));
         assert!(result.artifact_error.is_some());
@@ -328,9 +369,30 @@ mod tests {
     #[test]
     fn inherited_pipes_do_not_block_the_runner_indefinitely() {
         let dir = tempfile::tempdir().unwrap();
-        let result = run_inner(dir.path().to_str().unwrap(), "missing", 0, "/bin/sh", &["-c".into(), "/bin/sleep 2 &".into()], (Duration::from_secs(5), Duration::from_millis(100))).unwrap();
+        let result = run_inner(dir.path().to_str().unwrap(), "missing", 0, "/bin/sh", &["-c".into(), "/bin/sleep 2 &".into()], &[], (Duration::from_secs(5), Duration::from_millis(100))).unwrap();
         assert_eq!(result.exit_code, Some(0));
         assert!(result.output_incomplete);
+    }
+    #[test]
+    fn environment_names_are_bounded_unique_and_portable() {
+        for keys in [vec!["BAD-NAME".into()], vec!["lower".into()], vec!["1NAME".into()], vec!["A".into(), "A".into()], vec!["A".repeat(129)], (0..33).map(|n| format!("KEY_{n}")).collect()] {
+            assert!(validate_env_keys(&keys).is_err());
+        }
+        assert!(validate_env_keys(&["PATH".into(), "HENOSIS_1".into()]).is_ok());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn only_explicit_environment_is_passed_and_values_not_in_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let environment = vec![("HENOSIS_EXPLICIT".into(), OsString::from("example-value-not-for-recording"))];
+        let args = vec!["-c".into(), "test -n \"$HENOSIS_EXPLICIT\" && test -z \"${HENOSIS_UNSELECTED+x}\"".into()];
+        let result = run_with_env(dir.path().to_str().unwrap(), "missing", 0, "/bin/sh", &args, &environment).unwrap();
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.env_keys, vec!["HENOSIS_EXPLICIT"]);
+        assert!(!format!("{result:?}").contains("example-value-not-for-recording"));
+        let default = run(dir.path().to_str().unwrap(), "missing", 0, "/bin/sh", &["-c".into(), "test -z \"${HENOSIS_EXPLICIT+x}\"".into()]).unwrap();
+        assert_eq!(default.exit_code, Some(0));
+        assert!(default.env_keys.is_empty());
     }
     #[test]
     fn rejects_unsafe_paths_before_execution() {

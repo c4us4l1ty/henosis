@@ -140,6 +140,8 @@ path; do not replace or unlink a journal while any workspace has it open.
 
 ### Run a trusted experiment
 
+A runnable, end-to-end example lives in [`examples/double-number`](examples/double-number/).
+
 Create a proposal, then run a command and attach its result:
 
 ```text
@@ -196,3 +198,31 @@ malformed recorded hash, or file larger than 64 MiB produces an error, not a
 match. The project must be trusted; symlinks are followed, the file can change
 while being read, and the journal can be edited. A match is not proof of who
 created the file, correctness, cleanroom conditions, or verified capability.
+
+After inspecting an unfinished attempt, `review FILE ATTEMPT_ID "your note"`
+records a user-authored recovery note in the proposal history. `pending` marks
+reviewed attempts but continues to list them until a command result or runner
+error is recorded. A note does not stop the process, establish an outcome, or
+make a retry safe; the command might still be running. Later command results
+remain valid. Notes are plaintext, and older Henosis versions cannot read them.
+
+#### Explicit non-secret environment variables
+
+`run` still clears the child's entire environment. If a trusted program needs
+specific **non-secret** values from the environment Henosis was started with,
+select their names explicitly:
+
+```text
+runenv ./crux.jsonl 1 /absolute/project result.txt 0 LANG,TZ /absolute/program argument
+```
+
+Names are comma-separated, unique uppercase ASCII identifiers (up to 32); each
+must already exist in Henosis's parent environment. Missing or invalid names
+prevent the command from starting. The journal records the selected **names**,
+not their values; this limits reproducibility if the values later change.
+This is not a secret-management feature: the child and descendants can read,
+write, print, or transmit values, and captured output is stored in plaintext.
+Never pass credentials, tokens or other secrets. Empty environment does not
+sandbox the program or prevent it from accessing files and the network. Older
+journal records without environment names remain readable; older Henosis versions
+cannot read records with the new field.
