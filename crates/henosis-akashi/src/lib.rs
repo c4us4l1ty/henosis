@@ -183,7 +183,9 @@ pub fn verify_from_digest(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use henosis_dag::{EntityKind, EpistemicStatus, Node, RealizationContract, Worldline, WorldlineOp};
+    #[cfg(unix)]
     use henosis_vault::Identity;
 
     const PHRASE: &str =
