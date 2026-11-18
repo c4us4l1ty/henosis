@@ -165,5 +165,5 @@ fn trusted_experiment_is_recorded_and_visible_in_proposal_history() {
     assert!(stdout.contains("COMMAND RESULT for 1 (not a verified capability)"), "{stdout}");
     assert!(stdout.contains("Match: true"), "{stdout}");
     assert!(stdout.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), "{stdout}");
-    assert_eq!(henosis_crux::read(&directory.path().join("crux.jsonl")).unwrap().len(), 2);
+    assert_eq!(henosis_crux::read(&directory.path().join("crux.jsonl")).unwrap().len(), 3);
 }

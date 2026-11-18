@@ -168,3 +168,14 @@ not proof of correctness, human authorship, unassisted work, isolation, or
 verified capability. Output, arguments, paths and errors are stored in plaintext;
 do not include secrets. Old Henosis versions cannot read command-result events.
 If recording fails after execution, inspect the journal and project before retrying.
+
+Before execution, `run` records an attempt and its command details in the
+journal. A result or runner error is then appended and linked to that attempt.
+Use `pending ./crux.jsonl` to find attempts without a recorded outcome, and
+`show ./crux.jsonl ID` to inspect the proposal history. An unfinished attempt
+may be running, may have run, or may never have started: inspect the project
+and journal before retrying. A runner error also does not prove the command
+had no effects. Storage failures, process termination, or power loss can still
+leave incomplete or corrupt journals; this is not transactional execution.
+Older command-result records without attempt IDs remain readable. Older Henosis
+versions cannot read the new attempt events.
