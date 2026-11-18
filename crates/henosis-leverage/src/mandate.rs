@@ -12,10 +12,9 @@
 //! is socially, legally, or strategically acceptable.
 
 use crate::Interval;
-use crate::RetentionLedger;
 use henosis_dag::{validate_id, CsrHypergraph};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -91,7 +90,6 @@ pub fn detect_abandonment(
     active_goals: &[String],
     verified: &BTreeSet<String>,
 ) -> Result<Vec<MandateReport>, String> {
-    let empty: BTreeSet<String> = BTreeSet::new();
     // Union of every capability that at least one active goal's backward
     // light-cone reports as missing (i.e. load-bearing foundations).
     let mut load_bearing_caps: BTreeSet<String> = BTreeSet::new();

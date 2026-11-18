@@ -7,7 +7,7 @@
 
 use crate::interval::Interval;
 use crate::mandate::{AbandonmentVerdict, MandateReport};
-use crate::objective::{DominanceReport, Objective};
+use crate::objective::DominanceReport;
 use crate::retention::DecayAlert;
 use crate::walls::{RankedWall, WallSignal};
 use henosis_dag::validate_id;

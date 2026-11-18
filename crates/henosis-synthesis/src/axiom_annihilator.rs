@@ -15,7 +15,6 @@
 
 use combination::Combination;
 use henosis_crux::Event;
-use henosis_dag::validate_id;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 

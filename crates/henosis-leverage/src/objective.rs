@@ -90,8 +90,7 @@ pub fn analyze(objectives: &[Objective]) -> Result<Vec<DominanceReport>, String>
         });
     }
 
-    // Collect all pairwise mutations first to avoid simultaneous immutable
-    // and mutable borrows of `reports` through index-based access.
+    // Phase 1: classify all pairs under an immutable borrow of `reports`.
     let mut dominates_pairs: Vec<(usize, usize)> = Vec::new();
     let mut dominated_by_pairs: Vec<(usize, usize)> = Vec::new();
     let mut not_pareto: Vec<usize> = Vec::new();
@@ -118,11 +117,15 @@ pub fn analyze(objectives: &[Objective]) -> Result<Vec<DominanceReport>, String>
         }
     }
 
+    // Snapshot all action strings while `reports` is still immutably borrowed,
+    // then apply mutations in a separate pass to avoid borrow conflicts.
+    let all_actions: Vec<String> = reports.iter().map(|r| r.action.clone()).collect();
+
     for (i, j) in dominates_pairs {
-        reports[i].dominates.push(reports[j].action.clone());
+        reports[i].dominates.push(all_actions[j].clone());
     }
     for (i, j) in dominated_by_pairs {
-        reports[i].dominated_by.push(reports[j].action.clone());
+        reports[i].dominated_by.push(all_actions[j].clone());
     }
     for i in not_pareto {
         reports[i].is_pareto_optimal = false;
