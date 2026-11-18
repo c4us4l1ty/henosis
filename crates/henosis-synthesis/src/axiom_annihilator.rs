@@ -267,13 +267,7 @@ pub fn lobachevsky(system: &AxiomSystem) -> Result<LobachevskyResult, String> {
         b.annihilated_axioms
             .len()
             .cmp(&a.annihilated_axioms.len())
-            .then_with(|| {
-                a.annihilated_axioms
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .cmp(b.annihilated_axioms.iter().cloned().collect::<Vec<_>>())
-            })
+            .then_with(|| a.annihilated_axioms.cmp(&b.annihilated_axioms))
             .then_with(|| a.touches_empirical.cmp(&b.touches_empirical))
     });
 
