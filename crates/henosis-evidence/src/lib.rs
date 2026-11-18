@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::{self, Read};
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -104,6 +104,38 @@ fn artifact_hash(path: &Path) -> io::Result<String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
+fn checked_artifact_path(project: &str, artifact: &str) -> io::Result<PathBuf> {
+    let directory = Path::new(project);
+    let artifact_path = Path::new(artifact);
+    if !directory.is_absolute() || !directory.is_dir() || artifact_path.as_os_str().is_empty()
+        || !artifact_path.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "project must be an absolute directory; artifact must be a relative path without parent traversal"));
+    }
+    Ok(directory.join(artifact_path))
+}
+
+/// A comparison of the recorded digest to the file bytes read now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactComparison {
+    pub recorded: String,
+    pub current: String,
+    pub matches: bool,
+}
+
+/// Re-hash the recorded artifact without executing the command or changing the
+/// journal. A match is not an attestation or proof of capability. The project
+/// and its directory must be trusted; symlinks are followed and concurrent
+/// modification is not prevented. File contents are limited to 64 MiB.
+pub fn compare_artifact(evidence: &Evidence) -> io::Result<ArtifactComparison> {
+    let recorded = evidence.artifact_sha256.as_deref().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no recorded artifact hash"))?;
+    if recorded.len() != 64 || !recorded.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid recorded SHA-256 hash"));
+    }
+    let path = checked_artifact_path(&evidence.project, &evidence.artifact)?;
+    let current = artifact_hash(&path)?;
+    Ok(ArtifactComparison { recorded: recorded.to_owned(), matches: recorded == current, current })
+}
+
 /// Run a trusted executable with an empty environment. Output is drained while
 /// the process runs but retained only up to 16 KiB per stream. The 30-second
 /// timeout kills the direct child only. Descendants are not contained.
@@ -115,11 +147,10 @@ pub fn run(project: &str, artifact: &str, expected_exit: i32, program: &str, arg
 fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], limits: (Duration, Duration)) -> io::Result<Evidence> {
     let directory = Path::new(project);
     let executable = Path::new(program);
-    let artifact_path = Path::new(artifact);
-    if !directory.is_absolute() || !directory.is_dir() || !executable.is_absolute()
-        || artifact_path.as_os_str().is_empty() || !artifact_path.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)) {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "project and program must be absolute; artifact must be a relative path without parent traversal"));
+    if !executable.is_absolute() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "program must be an absolute path"));
     }
+    let artifact_path = checked_artifact_path(project, artifact)?;
     let mut child = Command::new(executable).args(arguments).current_dir(directory).env_clear()
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let stdout = Arc::new(Mutex::new(Capture::default()));
@@ -162,7 +193,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
         let capture = stderr.lock().unwrap_or_else(|e| e.into_inner());
         (String::from_utf8_lossy(&capture.bytes).into_owned(), capture.truncated, capture.failed, std::str::from_utf8(&capture.bytes).is_err())
     };
-    let hash = artifact_hash(&directory.join(artifact_path));
+    let hash = artifact_hash(&artifact_path);
     let (artifact_sha256, artifact_error) = match hash { Ok(hash) => (Some(hash), None), Err(error) => (None, Some(error.to_string())) };
     Ok(Evidence {
         project: project.into(), program: program.into(), arguments: arguments.to_vec(), artifact: artifact.into(), expected_exit,
@@ -189,6 +220,28 @@ mod tests {
         assert_eq!(result.stderr, "error");
         assert_eq!(result.artifact_sha256.as_deref(), Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
         assert!(!result.output_incomplete);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn compares_recorded_hash_without_reexecuting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("artifact");
+        std::fs::write(&path, b"abc").unwrap();
+        let mut evidence = run(dir.path().to_str().unwrap(), "artifact", 0, "/bin/true", &[]).unwrap();
+        assert!(compare_artifact(&evidence).unwrap().matches);
+        std::fs::write(&path, b"changed").unwrap();
+        let changed = compare_artifact(&evidence).unwrap();
+        assert!(!changed.matches);
+        assert_ne!(changed.recorded, changed.current);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(compare_artifact(&evidence).unwrap_err().kind(), io::ErrorKind::NotFound);
+        evidence.artifact_sha256 = None;
+        assert_eq!(compare_artifact(&evidence).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        evidence.artifact_sha256 = Some("not-a-hash".into());
+        assert_eq!(compare_artifact(&evidence).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        evidence.artifact_sha256 = Some("0".repeat(64));
+        evidence.artifact = "../outside".into();
+        assert_eq!(compare_artifact(&evidence).unwrap_err().kind(), io::ErrorKind::InvalidInput);
     }
     #[cfg(unix)]
     #[test]
