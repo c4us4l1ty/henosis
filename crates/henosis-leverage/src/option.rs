@@ -145,7 +145,7 @@ pub fn evaluate_option(
 
     let recommendation = if decay_risk && !objective_report.is_pareto_optimal {
         Recommendation::Abandon
-    } else if objective_report.is_pareto_optimal && score > 1.0 {
+    } else if objective_report.is_pareto_optimal && score >= 0.0 {
         Recommendation::Pursue
     } else if objective_report.is_pareto_optimal {
         Recommendation::Delegate
