@@ -103,6 +103,13 @@ pub fn backup(source: &Path, destination: &Path) -> io::Result<usize> {
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary.write_all(&bytes)?;
     temporary.as_file().sync_all()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temporary
+            .as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
     temporary.persist_noclobber(destination).map_err(|error| error.error)?;
     Ok(events.len())
 }
