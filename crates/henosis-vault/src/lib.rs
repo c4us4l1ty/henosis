@@ -45,6 +45,8 @@ pub enum IdentityError {
     InvalidMnemonic(bip39::Error),
     WrongWordCount,
     InvalidPurpose,
+    /// HKDF output or mnemonic-derived seed is not a valid Ed25519 scalar.
+    InvalidKey,
 }
 
 impl fmt::Display for IdentityError {
@@ -54,6 +56,7 @@ impl fmt::Display for IdentityError {
             Self::InvalidMnemonic(_) => write!(f, "invalid English BIP-39 mnemonic"),
             Self::WrongWordCount => write!(f, "identity requires exactly 12 words"),
             Self::InvalidPurpose => write!(f, "purpose label must be 1..=128 ASCII bytes without NUL"),
+    Self::InvalidKey => write!(f, "derived key material is not a valid Ed25519 scalar"),
         }
     }
 }
@@ -176,9 +179,8 @@ impl Identity {
         // A 32-byte HKDF-SHA256 output is always within the expansion limit.
         hkdf.expand(IDENTITY_INFO, key.as_mut())
             .expect("valid HKDF output length");
-        Ok(Self {
-            signing_key: SigningKey::from_bytes(&key),
-        })
+        let signing_key = SigningKey::from_bytes(*key).map_err(|_| IdentityError::InvalidKey)?;
+        Ok(Self { signing_key })
     }
 
     pub fn public_key(&self) -> [u8; 32] {
@@ -218,8 +220,8 @@ pub fn verify_raw(
     message: &[u8],
     signature: &[u8; 64],
 ) -> Result<(), SignatureError> {
-    let key = VerifyingKey::from_bytes(public_key).map_err(|_| SignatureError::InvalidPublicKey)?;
-    let sig = Signature::from_bytes(signature);
+    let key = VerifyingKey::from_bytes(*public_key).map_err(|_| SignatureError::InvalidPublicKey)?;
+    let sig = Signature::from_bytes(*signature);
     key.verify_strict(message, &sig)
         .map_err(|_| SignatureError::VerificationFailed)
 }
@@ -291,7 +293,7 @@ mod tests {
     #[test]
     fn signatures_verify_and_reject_modified_messages() {
         let identity = Identity::recover(PHRASE, "").unwrap();
-        let key = VerifyingKey::from_bytes(&identity.public_key()).unwrap();
+        let key = VerifyingKey::from_bytes(identity.public_key()).unwrap();
         let signature = Signature::from_bytes(&identity.sign(b"artifact"));
         assert!(key.verify_strict(b"artifact", &signature).is_ok());
         assert!(key.verify_strict(b"changed", &signature).is_err());

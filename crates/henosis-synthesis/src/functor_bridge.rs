@@ -286,18 +286,6 @@ fn verify_functor(
             missing.push(*prop);
         }
     }
-    // Operation arity consistency under the mapping.
-    for (source_name, target_name) in mapping {
-        let source_op = source.operations.iter().find(|(n, _)| n == source_name);
-        let target_op = target.operations.iter().find(|(n, _)| n == target_name);
-        match (source_op, target_op) {
-            (Some((_, sa)), Some((_, ta))) if sa != ta => {
-                // Should not happen given candidate filtering, but defend anyway.
-            }
-            (Some(_), None) | (None, Some(_)) => {}
-            _ => {}
-        }
-    }
     missing
 }
 
