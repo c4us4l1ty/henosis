@@ -294,7 +294,7 @@ mod tests {
     fn signatures_verify_and_reject_modified_messages() {
         let identity = Identity::recover(PHRASE, "").unwrap();
         let key = VerifyingKey::from_bytes(identity.public_key()).unwrap();
-        let signature = Signature::from_bytes(&identity.sign(b"artifact"));
+        let signature = Signature::from_bytes(identity.sign(b"artifact"));
         assert!(key.verify_strict(b"artifact", &signature).is_ok());
         assert!(key.verify_strict(b"changed", &signature).is_err());
     }
