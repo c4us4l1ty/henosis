@@ -179,7 +179,7 @@ impl Identity {
         // A 32-byte HKDF-SHA256 output is always within the expansion limit.
         hkdf.expand(IDENTITY_INFO, key.as_mut())
             .expect("valid HKDF output length");
-        let signing_key = SigningKey::from_bytes(*key).map_err(|_| IdentityError::InvalidKey)?;
+        let signing_key = SigningKey::from_bytes(&*key).map_err(|_| IdentityError::InvalidKey)?;
         Ok(Self { signing_key })
     }
 
@@ -220,8 +220,8 @@ pub fn verify_raw(
     message: &[u8],
     signature: &[u8; 64],
 ) -> Result<(), SignatureError> {
-    let key = VerifyingKey::from_bytes(*public_key).map_err(|_| SignatureError::InvalidPublicKey)?;
-    let sig = Signature::from_bytes(*signature);
+    let key = VerifyingKey::from_bytes(public_key).map_err(|_| SignatureError::InvalidPublicKey)?;
+    let sig = Signature::from_bytes(signature);
     key.verify_strict(message, &sig)
         .map_err(|_| SignatureError::VerificationFailed)
 }
@@ -293,8 +293,8 @@ mod tests {
     #[test]
     fn signatures_verify_and_reject_modified_messages() {
         let identity = Identity::recover(PHRASE, "").unwrap();
-        let key = VerifyingKey::from_bytes(identity.public_key()).unwrap();
-        let signature = Signature::from_bytes(identity.sign(b"artifact"));
+        let key = VerifyingKey::from_bytes(&identity.public_key()).unwrap();
+        let signature = Signature::from_bytes(&identity.sign(b"artifact"));
         assert!(key.verify_strict(b"artifact", &signature).is_ok());
         assert!(key.verify_strict(b"changed", &signature).is_err());
     }
