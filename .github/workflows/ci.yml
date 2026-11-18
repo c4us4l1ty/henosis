@@ -12,6 +12,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo test --locked --workspace -- --nocapture 2>&1 | tee -a $GITHUB_STEP_SUMMARY; exit ${PIPESTATUS[0]}
-        shell: bash
+      - run: cargo test --locked --workspace --no-run
+      - run: cargo test -p henosis-vault --locked
+      - run: cargo test -p henosis-crux --locked
+      - run: cargo test -p henosis-dag --locked
+      - run: cargo test -p henosis-evidence --locked
+      - run: cargo test -p henosis-jail --locked
+      - run: cargo test -p henosis-leverage --locked
+      - run: cargo test -p henosis-proxy --locked
+      - run: cargo test -p henosis-shell --locked
+      - run: cargo test -p henosis-synthesis --locked
+      - run: cargo test -p henosis-akashi --locked
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
