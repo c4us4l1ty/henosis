@@ -195,7 +195,9 @@ mod tests {
 
     #[test]
     fn untracked_mandate_defaults_to_abandon() {
-        let hg = CsrHypergraph::from_contracts(&[]);
+        // The tracked goal must exist in the hypergraph; an unknown target is a
+        // caller error on `backward_light_cone`, not a load-bearing foundation.
+        let hg = CsrHypergraph::from_contracts(&[contract("c-goal", &[], "g1", 1)]);
         let mandates = [Mandate {
             id: "ghost".into(),
             title: "Ghost".into(),
@@ -228,7 +230,13 @@ mod tests {
 
     #[test]
     fn non_load_bearing_mandate_is_abandoned() {
-        let hg = CsrHypergraph::from_contracts(&[contract("c1", &["a"], "goal", 3)]);
+        // "irrelevant" is tracked in the hypergraph (an output of c-irr) but
+        // sits on no goal's backward light-cone, so it abandons rather than
+        // being reported untracked.
+        let hg = CsrHypergraph::from_contracts(&[
+            contract("c1", &["a"], "goal", 3),
+            contract("c-irr", &[], "irrelevant", 1),
+        ]);
         let mandates = [Mandate {
             id: "irrelevant".into(),
             title: "Irrelevant".into(),
