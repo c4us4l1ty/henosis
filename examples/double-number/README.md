@@ -23,5 +23,7 @@ The optional `--pause` argument waits up to ten seconds after creating
 `started.marker`, then continues when `release.marker` appears. It demonstrates
 an interrupted workspace: stopping Henosis does **not** stop all descendants.
 Create the release marker or wait for the sample to time out, inspect the
-project, and use `pending journal.jsonl` to see the unresolved attempt. Never
-assume an unfinished attempt was not executed.
+project, and use `pending journal.jsonl` to see the unresolved attempt. You can
+record your inspection with `review journal.jsonl ATTEMPT_ID "inspected"`.
+That note is not a result: the attempt stays pending and the child may still
+run. Never assume an unfinished attempt was not executed.

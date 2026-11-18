@@ -59,6 +59,12 @@ fn sample_project_evidence_and_interruption_workflow() {
     let pending = shell(dir.path(), "pending journal.jsonl\nexit\n");
     assert!(pending.status.success());
     assert!(String::from_utf8(pending.stdout).unwrap().contains("Attempt 4 for proposal 1: outcome not recorded"));
+    let review = shell(dir.path(), "review journal.jsonl 4 \"Inspected; sample may still be running\"\npending journal.jsonl\nshow journal.jsonl 1\nexit\n");
+    assert!(review.status.success());
+    assert!(review.stderr.is_empty(), "{}", String::from_utf8_lossy(&review.stderr));
+    let review_text = String::from_utf8(review.stdout).unwrap();
+    assert!(review_text.contains("outcome remains unknown"), "{review_text}");
+    assert!(review_text.contains("USER REVIEW for proposal 1, attempt 4 (not a command result)"), "{review_text}");
     std::fs::write(dir.path().join("release.marker"), b"release").unwrap();
     wait_for(&dir.path().join("finished.marker"));
     assert_eq!(std::fs::read(dir.path().join("result.txt")).unwrap(), b"14\n");
