@@ -49,6 +49,9 @@ pub struct Evidence {
     pub env_keys: Vec<String>,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
+    /// None on older records; normal completion does not attempt tree cleanup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_cleanup: Option<TimeoutCleanup>,
     pub stdout: String,
     pub stderr: String,
     pub stdout_truncated: bool,
@@ -63,6 +66,16 @@ pub struct Evidence {
     /// None for evidence recorded before pre-run observations were introduced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_before: Option<ArtifactBefore>,
+}
+
+/// What was attempted on timeout. Successful signaling is not proof that all
+/// descendants stopped. A direct-child termination failure is a runner error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "scope", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TimeoutCleanup {
+    NotNeeded,
+    UnixProcessGroup { signal_error: Option<String> },
+    DirectChild,
 }
 
 /// An observation made immediately before starting the child, not an attestation.
@@ -233,10 +246,40 @@ pub fn run_with_env(project: &str, artifact: &str, expected_exit: i32, program: 
 
 /// Run a trusted executable with an empty environment. Output is drained while
 /// the process runs but retained only up to 16 KiB per stream. The 30-second
-/// timeout kills the direct child only. Descendants are not contained.
+/// timeout best-effort signals the Unix process group and kills the direct child;
+/// elsewhere it kills only the direct child. Descendants are not contained.
 /// An artifact hash is an observation of bytes read after exit, not attestation.
 pub fn run(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String]) -> io::Result<Evidence> {
     run_with_env(project, artifact, expected_exit, program, arguments, &[])
+}
+
+// The leader has not been reaped since the last try_wait returned None. Signal
+// before waiting, so its PID cannot be recycled into an unrelated group. Never
+// use group ID 1: kill(-1, ...) has system-wide semantics on Unix.
+#[cfg(unix)]
+fn signal_group(child: &Child) -> io::Result<()> {
+    use rustix::process::{kill_process_group, Pid, Signal};
+    let raw = i32::try_from(child.id()).map_err(|_| io::Error::other("child PID out of range"))?;
+    if raw <= 1 { return Err(io::Error::other("invalid child process group ID")); }
+    let pid = Pid::from_raw(raw).ok_or_else(|| io::Error::other("invalid child process group ID"))?;
+    kill_process_group(pid, Signal::KILL).map_err(io::Error::from)
+}
+
+// Always also kill the direct child: it may have escaped the original group.
+// If kill races with exit, reap it; otherwise report failure without waiting on
+// a potentially still-running child. Include the group error in that failure.
+fn timeout_child<F>(child: &mut Child, cleanup: F) -> io::Result<(std::process::ExitStatus, TimeoutCleanup)>
+where F: FnOnce(&Child) -> TimeoutCleanup {
+    let outcome = cleanup(child);
+    if let Err(error) = child.kill() {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok((status, outcome)),
+            Ok(None) => return Err(io::Error::other(format!("direct child termination failed: {error}; timeout cleanup: {outcome:?}"))),
+            Err(wait_error) => return Err(io::Error::other(format!("direct child termination failed: {error}; status check failed: {wait_error}; timeout cleanup: {outcome:?}"))),
+        }
+    }
+    let status = child.wait().map_err(|error| io::Error::other(format!("direct child wait failed: {error}; timeout cleanup: {outcome:?}")))?;
+    Ok((status, outcome))
 }
 
 fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], environment: &[(String, OsString)], limits: (Duration, Duration)) -> io::Result<Evidence> {
@@ -251,23 +294,32 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
         Err(error) if error.kind() == io::ErrorKind::NotFound => ArtifactBefore::NotFound,
         Err(error) => ArtifactBefore::Unavailable { error: error.to_string() },
     };
-    let mut child = Command::new(executable).args(arguments).current_dir(directory).env_clear()
+    let mut command = Command::new(executable);
+    command.args(arguments).current_dir(directory).env_clear()
         .envs(environment.iter().map(|(key, value)| (key, value)))
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command.spawn()?;
     let stdout = Arc::new(Mutex::new(Capture::default()));
     let stderr = Arc::new(Mutex::new(Capture::default()));
     let (send, recv) = mpsc::channel();
     start_readers(&mut child, Arc::clone(&stdout), Arc::clone(&stderr), send, drain)?;
     let deadline = Instant::now() + limits.0;
-    let (status, timed_out) = loop {
+    let (status, timed_out, timeout_cleanup) = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break (status, false),
+            Ok(Some(status)) => break (status, false, TimeoutCleanup::NotNeeded),
             Ok(None) if Instant::now() >= deadline => {
-                if let Err(error) = child.kill() {
-                    if let Some(status) = child.try_wait()? { break (status, false); }
-                    return Err(error);
-                }
-                break (child.wait()?, true);
+                let (status, cleanup) = timeout_child(&mut child, |child| {
+                    #[cfg(unix)]
+                    { TimeoutCleanup::UnixProcessGroup { signal_error: signal_group(child).err().map(|error| error.to_string()) } }
+                    #[cfg(not(unix))]
+                    { let _ = child; TimeoutCleanup::DirectChild }
+                })?;
+                break (status, true, cleanup);
             },
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
             Err(error) => { let _ = child.kill(); let _ = child.wait(); return Err(error); }
@@ -298,7 +350,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
     Ok(Evidence {
         project: project.into(), program: program.into(), arguments: arguments.to_vec(), artifact: artifact.into(), expected_exit,
         env_keys: environment.iter().map(|(key, _)| key.clone()).collect(),
-        exit_code: status.code(), timed_out,
+        exit_code: status.code(), timed_out, timeout_cleanup: Some(timeout_cleanup),
         stdout: stdout_text, stderr: stderr_text,
         stdout_truncated, stderr_truncated,
         stdout_lossy: Some(stdout_lossy), stderr_lossy: Some(stderr_lossy),
@@ -451,10 +503,41 @@ mod tests {
     }
     #[cfg(unix)]
     #[test]
+    fn timeout_records_group_failure_but_still_reaps_direct_child() {
+        let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let (status, cleanup) = timeout_child(&mut child, |_| TimeoutCleanup::UnixProcessGroup { signal_error: Some("simulated failure".into()) }).unwrap();
+        assert!(!status.success());
+        assert_eq!(cleanup, TimeoutCleanup::UnixProcessGroup { signal_error: Some("simulated failure".into()) });
+        assert!(child.try_wait().unwrap().is_some());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn timeout_signals_group_including_grandchild() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().to_str().unwrap().to_owned();
+        // The descendant signals readiness and waits for release. If cleanup
+        // fails it can exit itself, so a test failure cannot leave a long orphan.
+        let script = "(printf ready > ready; n=0; while [ ! -f release ] && [ $n -lt 100 ]; do /bin/sleep 0.1; n=$((n+1)); done; if [ -f release ]; then printf survived > survived; fi) & wait";
+        let thread = std::thread::spawn(move || run_inner(&project, "missing", 0, "/bin/sh", &["-c".into(), script.into()], &[], (Duration::from_secs(3), Duration::from_secs(2))).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !dir.path().join("ready").exists() && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(20)); }
+        let ready = dir.path().join("ready").exists();
+        let result = thread.join().unwrap();
+        std::fs::write(dir.path().join("release"), b"release").unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(ready, "grandchild did not become ready before timeout");
+        assert!(result.timed_out);
+        assert_eq!(result.timeout_cleanup, Some(TimeoutCleanup::UnixProcessGroup { signal_error: None }));
+        assert!(!result.output_incomplete, "descendant retained output pipes");
+        assert!(!dir.path().join("survived").exists(), "grandchild survived cleanup");
+    }
+    #[cfg(unix)]
+    #[test]
     fn inherited_pipes_do_not_block_the_runner_indefinitely() {
         let dir = tempfile::tempdir().unwrap();
         let result = run_inner(dir.path().to_str().unwrap(), "missing", 0, "/bin/sh", &["-c".into(), "/bin/sleep 2 &".into()], &[], (Duration::from_secs(5), Duration::from_millis(100))).unwrap();
         assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.timeout_cleanup, Some(TimeoutCleanup::NotNeeded));
         assert!(result.output_incomplete);
     }
     #[test]

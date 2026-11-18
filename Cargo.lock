@@ -302,6 +302,7 @@ name = "henosis-evidence"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "rustix",
  "serde",
  "sha2",
  "tempfile",
