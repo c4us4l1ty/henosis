@@ -14,7 +14,14 @@ fn main() -> io::Result<()> {
     }
     let input = fs::read_to_string("input.txt")?;
     let number: i64 = input.trim().parse().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let result = number.checked_mul(2).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "overflow"))?;
+    let factor = if std::env::args().nth(1).as_deref() == Some("--factor-env") {
+        if std::env::var_os("HENOSIS_UNSELECTED").is_some() {
+            return Err(io::Error::other("unselected environment variable was inherited"));
+        }
+        std::env::var("HENOSIS_DEMO_FACTOR").map_err(io::Error::other)?
+            .parse::<i64>().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+    } else { 2 };
+    let result = number.checked_mul(factor).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "overflow"))?;
     fs::write("result.txt", format!("{result}\n"))?;
     if std::env::args().nth(1).as_deref() == Some("--pause") {
         fs::write("finished.marker", "finished\n")?;

@@ -27,3 +27,15 @@ project, and use `pending journal.jsonl` to see the unresolved attempt. You can
 record your inspection with `review journal.jsonl ATTEMPT_ID "inspected"`.
 That note is not a result: the attempt stays pending and the child may still
 run. Never assume an unfinished attempt was not executed.
+
+To exercise explicit environment selection, set the non-secret
+`HENOSIS_DEMO_FACTOR` in the environment **before starting Henosis**, then run:
+
+```text
+runenv journal.jsonl 1 /absolute/project result.txt 0 HENOSIS_DEMO_FACTOR /absolute/project/double-number --factor-env
+```
+
+With `HENOSIS_DEMO_FACTOR=3`, this writes `21`. Only the named variable is
+passed; unset names are errors. The journal records the name, not its value, so
+this is not sufficient to reproduce the run by itself. The program can print,
+write, or transmit any value passed to it. Never use this mechanism for secrets.

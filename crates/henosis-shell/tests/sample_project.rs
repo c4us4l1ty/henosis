@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 fn shell(directory: &Path, input: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
-        .current_dir(directory).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        .current_dir(directory).env("HENOSIS_DEMO_FACTOR", "00003").env("HENOSIS_UNSELECTED", "not-selected")
+        .env_remove("HENOSIS_TEST_MISSING_FOR_RUNENV").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
     child.wait_with_output().unwrap()
 }
@@ -68,4 +69,20 @@ fn sample_project_evidence_and_interruption_workflow() {
     std::fs::write(dir.path().join("release.marker"), b"release").unwrap();
     wait_for(&dir.path().join("finished.marker"));
     assert_eq!(std::fs::read(dir.path().join("result.txt")).unwrap(), b"14\n");
+    let commands = format!("runenv journal.jsonl 1 {project} result.txt 0 HENOSIS_DEMO_FACTOR {executable} --factor-env\nshow journal.jsonl 1\nexit\n");
+    let env_run = shell(dir.path(), &commands);
+    assert!(env_run.status.success());
+    assert!(env_run.stderr.is_empty(), "{}", String::from_utf8_lossy(&env_run.stderr));
+    let output = String::from_utf8(env_run.stdout).unwrap();
+    assert!(output.contains("HENOSIS_DEMO_FACTOR"), "{output}");
+    assert!(output.contains("Match: true"), "{output}");
+    assert_eq!(std::fs::read(dir.path().join("result.txt")).unwrap(), b"21\n");
+    let journal = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
+    assert!(!journal.contains("00003"), "environment value was recorded");
+    assert!(!journal.contains("not-selected"), "unselected value was recorded");
+    let before = henosis_crux::read(&dir.path().join("journal.jsonl")).unwrap().len();
+    let invalid = format!("runenv journal.jsonl 1 {project} result.txt 0 HENOSIS_TEST_MISSING_FOR_RUNENV {executable} --factor-env\nrunenv journal.jsonl 1 {project} result.txt 0 HENOSIS_DEMO_FACTOR,HENOSIS_DEMO_FACTOR {executable} --factor-env\nexit\n");
+    let bad = shell(dir.path(), &invalid);
+    assert_eq!(String::from_utf8(bad.stderr).unwrap().matches("environment selection failed").count(), 2);
+    assert_eq!(henosis_crux::read(&dir.path().join("journal.jsonl")).unwrap().len(), before);
 }

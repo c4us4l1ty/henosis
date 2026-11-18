@@ -326,6 +326,9 @@ mod tests {
         let mut bad = evidence.clone();
         bad.program = "/different".into();
         assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: bad }).is_err());
+        let mut bad_env = evidence.clone();
+        bad_env.env_keys.push("EXTRA".into());
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: bad_env }).is_err());
         assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 1, error: "bad".into() }).is_err());
         assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).unwrap(), 4);
         assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());
