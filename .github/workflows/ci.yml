@@ -12,5 +12,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo test --locked --workspace
+      - run: cargo test --locked --workspace -- --nocapture 2>&1 | tee -a $GITHUB_STEP_SUMMARY; exit ${PIPESTATUS[0]}
+        shell: bash
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
