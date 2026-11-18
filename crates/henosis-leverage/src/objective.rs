@@ -90,6 +90,12 @@ pub fn analyze(objectives: &[Objective]) -> Result<Vec<DominanceReport>, String>
         });
     }
 
+    // Collect all pairwise mutations first to avoid simultaneous immutable
+    // and mutable borrows of `reports` through index-based access.
+    let mut dominates_pairs: Vec<(usize, usize)> = Vec::new();
+    let mut dominated_by_pairs: Vec<(usize, usize)> = Vec::new();
+    let mut not_pareto: Vec<usize> = Vec::new();
+
     for i in 0..reports.len() {
         for j in 0..reports.len() {
             if i == j {
@@ -98,18 +104,28 @@ pub fn analyze(objectives: &[Objective]) -> Result<Vec<DominanceReport>, String>
             let rel = reports[i].relation_to(&reports[j]);
             match rel {
                 DominanceRelation::Dominates => {
-                    reports[i].dominates.push(reports[j].action.clone());
-                    reports[j].dominated_by.push(reports[i].action.clone());
-                    reports[j].is_pareto_optimal = false;
+                    dominates_pairs.push((i, j));
+                    dominated_by_pairs.push((j, i));
+                    not_pareto.push(j);
                 }
                 DominanceRelation::DominatedBy => {
-                    reports[i].dominated_by.push(reports[j].action.clone());
-                    reports[j].dominates.push(reports[i].action.clone());
-                    reports[i].is_pareto_optimal = false;
+                    dominated_by_pairs.push((i, j));
+                    dominates_pairs.push((j, i));
+                    not_pareto.push(i);
                 }
                 DominanceRelation::Unresolved => {}
             }
         }
+    }
+
+    for (i, j) in dominates_pairs {
+        reports[i].dominates.push(reports[j].action.clone());
+    }
+    for (i, j) in dominated_by_pairs {
+        reports[i].dominated_by.push(reports[j].action.clone());
+    }
+    for i in not_pareto {
+        reports[i].is_pareto_optimal = false;
     }
 
     for report in &mut reports {
