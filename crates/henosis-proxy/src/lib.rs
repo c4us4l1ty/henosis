@@ -974,7 +974,32 @@ fn handle_connection(mut stream: TcpStream, state: Arc<Mutex<ProxyState>>) -> io
             );
         }
 
-        // 3. Per-session request & byte circuit breaker.
+        // 3. Outbound Prompt DLP & Secret Exfiltration Firewall.
+        if let Err(violation) = guard.dlp.scan(&req.body) {
+            guard.record_event(LogInput {
+                session_id: Some(session_info.id),
+                session_label: Some(session_info.label),
+                provider: Some(session_info.provider),
+                endpoint: req.path.clone(),
+                model,
+                topic_hints,
+                impedance,
+                decision: ProxyDecision::BlockedDlp {
+                    category: violation.category,
+                },
+                prompt_bytes,
+                prompt_sha256,
+            });
+            return write_error(
+                &mut stream,
+                403,
+                "Forbidden",
+                violation.category.as_str(),
+                &violation.reason,
+            );
+        }
+
+        // 4. Per-session request & byte circuit breaker.
         let next_reqs = session_info.used_requests.saturating_add(1);
         let next_bytes = session_info
             .used_prompt_bytes
@@ -1000,31 +1025,6 @@ fn handle_connection(mut stream: TcpStream, state: Arc<Mutex<ProxyState>>) -> io
                 "Too Many Requests",
                 "session_budget_exceeded",
                 "session request or prompt-byte circuit breaker tripped",
-            );
-        }
-
-        // 4. Outbound Prompt DLP & Secret Exfiltration Firewall.
-        if let Err(violation) = guard.dlp.scan(&req.body) {
-            guard.record_event(LogInput {
-                session_id: Some(session_info.id),
-                session_label: Some(session_info.label),
-                provider: Some(session_info.provider),
-                endpoint: req.path.clone(),
-                model,
-                topic_hints,
-                impedance,
-                decision: ProxyDecision::BlockedDlp {
-                    category: violation.category,
-                },
-                prompt_bytes,
-                prompt_sha256,
-            });
-            return write_error(
-                &mut stream,
-                403,
-                "Forbidden",
-                violation.category.as_str(),
-                &violation.reason,
             );
         }
 
