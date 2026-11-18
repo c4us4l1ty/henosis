@@ -342,7 +342,14 @@ mod tests {
         assert_eq!(serde_json::from_str::<henosis_evidence::Request>(&request_json).unwrap(), request);
         let evidence_json = serde_json::to_string(&evidence).unwrap();
         assert!(!evidence_json.contains("env_keys"));
-        assert_eq!(serde_json::from_str::<henosis_evidence::Evidence>(&evidence_json).unwrap(), evidence);
+        assert!(!evidence_json.contains("artifact_before"));
+        let legacy_evidence = serde_json::from_str::<henosis_evidence::Evidence>(&evidence_json).unwrap();
+        assert_eq!(legacy_evidence, evidence);
+        assert_eq!(legacy_evidence.artifact_change(), henosis_evidence::ArtifactChange::Unavailable);
+        let mut recorded = evidence.clone();
+        recorded.artifact_before = Some(henosis_evidence::ArtifactBefore::Hashed { sha256: "a".repeat(64) });
+        let recorded_json = serde_json::to_string(&recorded).unwrap();
+        assert_eq!(serde_json::from_str::<henosis_evidence::Evidence>(&recorded_json).unwrap(), recorded);
         assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 1, error: "bad".into() }).is_err());
         assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).unwrap(), 4);
         assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());

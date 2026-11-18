@@ -314,6 +314,34 @@ mod tests {
         assert_eq!(result.artifact_sha256.as_deref(), Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
         assert!(!result.output_incomplete);
     }
+    #[cfg(unix)]
+    #[test]
+    fn artifact_observations_compare_before_and_after_without_claiming_authorship() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().to_str().unwrap();
+        let command = |script: &str| run(project, "artifact", 0, "/bin/sh", &["-c".into(), script.into()]).unwrap();
+        let appeared = command("printf first > artifact");
+        assert_eq!(appeared.artifact_before, Some(ArtifactBefore::NotFound));
+        assert_eq!(appeared.artifact_change(), ArtifactChange::Appeared);
+        let unchanged = command("exit 0");
+        assert!(matches!(unchanged.artifact_before, Some(ArtifactBefore::Hashed { .. })));
+        assert_eq!(unchanged.artifact_change(), ArtifactChange::Unchanged);
+        let changed = command("printf second > artifact");
+        assert_eq!(changed.artifact_change(), ArtifactChange::Changed);
+        let removed = command("/bin/rm artifact");
+        assert_eq!(removed.artifact_change(), ArtifactChange::Unavailable);
+        let missing = command("exit 0");
+        assert_eq!(missing.artifact_before, Some(ArtifactBefore::NotFound));
+        assert_eq!(missing.artifact_change(), ArtifactChange::Unavailable);
+        std::fs::File::create(dir.path().join("artifact")).unwrap().set_len(ARTIFACT_LIMIT + 1).unwrap();
+        let large_before = command("printf small > artifact");
+        assert!(matches!(large_before.artifact_before, Some(ArtifactBefore::Unavailable { .. })));
+        assert_eq!(large_before.artifact_change(), ArtifactChange::Unavailable);
+        std::fs::File::create(dir.path().join("artifact")).unwrap().set_len(ARTIFACT_LIMIT + 1).unwrap();
+        let large_after = command("exit 0");
+        assert!(large_after.artifact_error.is_some());
+        assert_eq!(large_after.artifact_change(), ArtifactChange::Unavailable);
+    }
     #[test]
     fn oversized_artifact_is_rejected() {
         let dir = tempfile::tempdir().unwrap();

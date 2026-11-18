@@ -162,13 +162,20 @@ may not include that flag.
 If descendants keep pipes open, capture stops waiting after one second and marks
 output incomplete; reader threads may persist until the pipes close.
 
-The SHA-256 covers at most 64 MiB of one regular artifact file read after the
-command exits; symlinks are followed and concurrent mutation is not prevented.
-A missing or unreadable artifact is recorded as an error. The file may have
-existed before the command. An exit-code match and artifact hash are observations,
-not proof of correctness, human authorship, unassisted work, isolation, or
-verified capability. Output, arguments, paths and errors are stored in plaintext;
-do not include secrets. Old Henosis versions cannot read command-result events.
+Henosis observes the artifact immediately before spawning the command and again
+after it exits. Each hash covers at most 64 MiB of one regular file. The result
+reports APPEARED (not found before, readable afterward), CHANGED or UNCHANGED
+(comparing hashes), or UNAVAILABLE if comparison is impossible. Missing,
+unreadable, non-regular and oversized files can prevent comparison. Older results
+have no pre-run observation and report UNAVAILABLE. Older Henosis versions cannot
+read results containing the new observation.
+
+These are observations, not proof that the command created or changed the file:
+other processes can modify it, symlinks are followed, reads can race with changes,
+and descendants may continue running. Even UNCHANGED cannot rule out temporary
+changes. Exit-code matches and hashes are not proof of correctness, human
+authorship, unassisted work, isolation, or verified capability. Output, arguments,
+paths and errors are stored in plaintext; do not include secrets.
 If recording fails after execution, inspect the journal and project before retrying.
 
 Before execution, `run` records an attempt and its command details in the
