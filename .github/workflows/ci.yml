@@ -12,6 +12,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - run: echo "::error::DIAGNOSTIC: testing if error annotations work"
       - run: |
           set +eo pipefail
           cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt
