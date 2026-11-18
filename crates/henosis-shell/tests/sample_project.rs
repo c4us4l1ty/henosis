@@ -1,0 +1,65 @@
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
+
+fn shell(directory: &Path, input: &str) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
+        .current_dir(directory).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn wait_for(path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !path.exists() {
+        assert!(Instant::now() < deadline, "timed out waiting for {}", path.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+// Release a paused sample even if an assertion fails, so an orphan cannot hang.
+struct ReleaseOnDrop(std::path::PathBuf);
+impl Drop for ReleaseOnDrop {
+    fn drop(&mut self) { let _ = std::fs::write(&self.0, b"release"); }
+}
+
+#[test]
+fn sample_project_evidence_and_interruption_workflow() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("main.rs");
+    let binary = dir.path().join(format!("double-number{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&source, include_str!("../../../examples/double-number/main.rs")).unwrap();
+    std::fs::write(dir.path().join("input.txt"), include_str!("../../../examples/double-number/input.txt")).unwrap();
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let output = Command::new(rustc).arg("--edition=2021").arg(&source).arg("-o").arg(&binary).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let project = shell_words::quote(dir.path().to_str().unwrap());
+    let executable = shell_words::quote(binary.to_str().unwrap());
+    let commands = format!("propose journal.jsonl goal hypothesis test\nrun journal.jsonl 1 {project} result.txt 0 {executable}\nshow journal.jsonl 1\ncompare journal.jsonl 3\nexit\n");
+    let output = shell(dir.path(), &commands);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("COMMAND RESULT for 1 (not a verified capability)"), "{text}");
+    assert!(text.contains("Match: true"), "{text}");
+    assert!(text.contains("result 3: MATCH"), "{text}");
+    assert_eq!(std::fs::read(dir.path().join("result.txt")).unwrap(), b"14\n");
+    std::fs::write(dir.path().join("result.txt"), b"changed\n").unwrap();
+    let changed = shell(dir.path(), "compare journal.jsonl 3\nexit\n");
+    assert!(changed.status.success());
+    assert!(String::from_utf8(changed.stdout).unwrap().contains("result 3: DIFFERENT"));
+    let _release = ReleaseOnDrop(dir.path().join("release.marker"));
+    let mut workspace = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
+        .current_dir(dir.path()).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    workspace.stdin.as_mut().unwrap().write_all(format!("run journal.jsonl 1 {project} result.txt 0 {executable} --pause\n").as_bytes()).unwrap();
+    wait_for(&dir.path().join("started.marker"));
+    workspace.kill().unwrap();
+    workspace.wait().unwrap();
+    let pending = shell(dir.path(), "pending journal.jsonl\nexit\n");
+    assert!(pending.status.success());
+    assert!(String::from_utf8(pending.stdout).unwrap().contains("Attempt 4 for proposal 1: outcome not recorded"));
+    std::fs::write(dir.path().join("release.marker"), b"release").unwrap();
+    wait_for(&dir.path().join("finished.marker"));
+    assert_eq!(std::fs::read(dir.path().join("result.txt")).unwrap(), b"14\n");
+}
