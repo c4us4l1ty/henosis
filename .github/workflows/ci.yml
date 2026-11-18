@@ -12,36 +12,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: 'echo "::error::DIAGNOSTIC_TEST annotation mechanism check"'
-      - run: |
-          cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt
-          echo "CARGO_EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_ENV
-          exit ${PIPESTATUS[0]}
-        shell: bash
-      - run: |
-          tail -30 /tmp/cargo_output.txt | while IFS= read -r line; do
-            echo "::error::${line}"
-          done
-        if: always()
-      - run: cargo test -p henosis-vault --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-crux --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-dag --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-evidence --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-jail --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-leverage --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-proxy --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-shell --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-synthesis --locked
-        if: env.CARGO_EXIT_CODE == '0'
-      - run: cargo test -p henosis-akashi --locked
-        if: env.CARGO_EXIT_CODE == '0'
+      - run: cargo test --locked --workspace
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-        if: env.CARGO_EXIT_CODE == '0'
