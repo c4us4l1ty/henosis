@@ -108,7 +108,9 @@ fn artifact_hash(path: &Path) -> io::Result<String> {
         options.custom_flags(libc::O_NONBLOCK);
     }
     let file = options.open(path)?;
-    if !file.metadata()?.is_file() { return Err(io::Error::new(io::ErrorKind::InvalidInput, "artifact is not a regular file")); }
+    let metadata = file.metadata()?;
+    if !metadata.is_file() { return Err(io::Error::new(io::ErrorKind::InvalidInput, "artifact is not a regular file")); }
+    if metadata.len() > ARTIFACT_LIMIT { return Err(io::Error::new(io::ErrorKind::InvalidData, "artifact exceeds 64 MiB")); }
     let mut reader = file.take(ARTIFACT_LIMIT + 1);
     let mut hash = Sha256::new();
     let mut count = 0u64;
@@ -238,6 +240,21 @@ mod tests {
         assert_eq!(result.stderr, "error");
         assert_eq!(result.artifact_sha256.as_deref(), Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
         assert!(!result.output_incomplete);
+    }
+    #[test]
+    fn oversized_artifact_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large");
+        std::fs::File::create(&path).unwrap().set_len(ARTIFACT_LIMIT + 1).unwrap();
+        assert_eq!(artifact_hash(&path).unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn artifact_fifo_without_writer_is_rejected_without_blocking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fifo");
+        assert!(Command::new("mkfifo").arg(&path).status().unwrap().success());
+        assert_eq!(artifact_hash(&path).unwrap_err().kind(), io::ErrorKind::InvalidInput);
     }
     #[cfg(unix)]
     #[test]
