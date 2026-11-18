@@ -1,0 +1,19 @@
+[package]
+name = "henosis-akashi"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+henosis-dag = { path = "../henosis-dag" }
+henosis-evidence = { path = "../henosis-evidence" }
+henosis-jail = { path = "../henosis-jail" }
+henosis-proxy = { path = "../henosis-proxy" }
+henosis-vault = { path = "../henosis-vault" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3.15"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

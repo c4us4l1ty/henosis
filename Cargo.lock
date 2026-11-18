@@ -286,14 +286,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "henosis-akashi"
+version = "0.1.0"
+dependencies = [
+ "henosis-dag",
+ "henosis-evidence",
+ "henosis-jail",
+ "henosis-proxy",
+ "henosis-vault",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "henosis-crux"
 version = "0.1.0"
 dependencies = [
  "fs2",
  "henosis-evidence",
+ "henosis-vault",
  "libc",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "henosis-dag"
+version = "0.1.0"
+dependencies = [
+ "fs2",
+ "henosis-vault",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
 ]
 
@@ -311,6 +342,32 @@ dependencies = [
 [[package]]
 name = "henosis-jail"
 version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
+name = "henosis-leverage"
+version = "0.1.0"
+dependencies = [
+ "henosis-dag",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "henosis-proxy"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "henosis-jail",
+ "henosis-vault",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "zeroize",
+]
 
 [[package]]
 name = "henosis-shell"
@@ -324,6 +381,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "henosis-synthesis"
+version = "0.1.0"
+dependencies = [
+ "henosis-crux",
+ "henosis-dag",
+ "serde",
+]
+
+[[package]]
 name = "henosis-vault"
 version = "0.1.0"
 dependencies = [
@@ -331,10 +397,14 @@ dependencies = [
  "bip39",
  "chacha20poly1305",
  "ed25519-dalek",
+ "fs2",
  "getrandom 0.2.17",
  "hkdf",
  "libc",
+ "serde",
+ "serde_json",
  "sha2",
+ "subtle",
  "tempfile",
  "zeroize",
 ]

@@ -2,6 +2,8 @@
 //! A deliberately modest, user-authored record of goals and falsification tests.
 //! Records and estimates are user assertions, not verified capabilities.
 
+pub mod checkpoint;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
