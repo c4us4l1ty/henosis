@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 // User-controlled text must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
@@ -192,6 +192,22 @@ fn workspace() -> io::Result<()> {
                     Err(error) => eprintln!("Could not read journal: {error}"),
                 },
                 Err(_) => eprintln!("Proposal ID must be a number."),
+            },
+            "compare" if words.len() == 3 => match words[2].parse::<u64>() {
+                Ok(id) => match henosis_crux::read(Path::new(&words[1])) {
+                    Ok(events) => {
+                        let event = id.checked_sub(1).and_then(|n| usize::try_from(n).ok()).and_then(|n| events.get(n));
+                        match event {
+                            Some(Event::CommandResult { evidence, .. }) => match henosis_evidence::compare_artifact(evidence) {
+                                Ok(comparison) => println!("Artifact comparison for result {id}: {}\n  Recorded SHA-256: {}\n  Current SHA-256: {}\nNot proof of authorship, correctness, or capability.", if comparison.matches { "MATCH" } else { "DIFFERENT" }, comparison.recorded, comparison.current),
+                                Err(error) => eprintln!("Could not compare artifact: {error}"),
+                            },
+                            _ => eprintln!("No command result with ID {id}."),
+                        }
+                    },
+                    Err(error) => eprintln!("Could not read journal: {error}"),
+                },
+                Err(_) => eprintln!("Result ID must be a number."),
             },
             "pending" if words.len() == 2 => match henosis_crux::read(Path::new(&words[1])).and_then(|events| henosis_crux::unfinished(&events)) {
                 Ok(attempts) if attempts.is_empty() => println!("No unfinished attempts."),

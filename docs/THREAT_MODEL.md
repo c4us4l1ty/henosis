@@ -49,3 +49,7 @@ The shell records an attempt before starting a command and links a later result
 or runner error. An unfinished attempt may or may not have executed. A runner
 error does not prove the command had no effects. These records improve recovery
 visibility but are not an atomic transaction with external process execution.
+
+Artifact comparison re-reads the path recorded in the journal. A matching hash
+is only a comparison to that unauthenticated record; it is not an independent
+attestation. Symlink substitution and concurrent modification are out of scope.

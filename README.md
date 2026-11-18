@@ -179,3 +179,20 @@ had no effects. Storage failures, process termination, or power loss can still
 leave incomplete or corrupt journals; this is not transactional execution.
 Older command-result records without attempt IDs remain readable. Older Henosis
 versions cannot read the new attempt events.
+
+### Compare an artifact with a recorded result
+
+Use `journal FILE` or `show FILE PROPOSAL_ID` to find a **command result's
+event ID**, then run:
+
+```text
+compare ./crux.jsonl RESULT_ID
+```
+
+This reads the current artifact at the result's recorded project and relative
+path, computes SHA-256, and displays whether it matches the recorded digest. It
+does not rerun the command or add a journal event. A missing artifact, absent or
+malformed recorded hash, or file larger than 64 MiB produces an error, not a
+match. The project must be trusted; symlinks are followed, the file can change
+while being read, and the journal can be edited. A match is not proof of who
+created the file, correctness, cleanroom conditions, or verified capability.
