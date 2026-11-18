@@ -282,6 +282,23 @@ where F: FnOnce(&Child) -> TimeoutCleanup {
     Ok((status, outcome))
 }
 
+// A status-check failure does not imply the child is gone. If termination
+// fails, do not block waiting for a potentially live child; report both errors.
+fn cleanup_after_status_error<F>(child: &mut Child, status_error: io::Error, kill: F) -> io::Error
+where F: FnOnce(&mut Child) -> io::Result<()> {
+    match kill(child) {
+        Ok(()) => match child.wait() {
+            Ok(_) => io::Error::other(format!("child status check failed: {status_error}; direct child terminated and reaped")),
+            Err(error) => io::Error::other(format!("child status check failed: {status_error}; direct child wait failed: {error}")),
+        },
+        Err(error) => match child.try_wait() {
+            Ok(Some(_)) => io::Error::other(format!("child status check failed: {status_error}; child already exited after termination error: {error}")),
+            Ok(None) => io::Error::other(format!("child status check failed: {status_error}; direct child termination failed: {error}; child may still be running")),
+            Err(wait_error) => io::Error::other(format!("child status check failed: {status_error}; direct child termination failed: {error}; status recheck failed: {wait_error}; child may still be running")),
+        },
+    }
+}
+
 fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], environment: &[(String, OsString)], limits: (Duration, Duration)) -> io::Result<Evidence> {
     let directory = Path::new(project);
     let executable = Path::new(program);
@@ -322,7 +339,7 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
                 break (status, true, cleanup);
             },
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-            Err(error) => { let _ = child.kill(); let _ = child.wait(); return Err(error); }
+            Err(error) => return Err(cleanup_after_status_error(&mut child, error, Child::kill)),
         }
     };
     // A descendant can keep inherited pipes open after the direct child exits.
@@ -500,6 +517,19 @@ mod tests {
         assert!(result.timed_out);
         assert_ne!(result.exit_code, Some(0));
         assert!(result.artifact_error.is_some());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn status_error_with_failed_kill_does_not_wait_for_live_child() {
+        let mut child = Command::new("/bin/sleep").arg("10").spawn().unwrap();
+        let error = cleanup_after_status_error(&mut child, io::Error::other("status failed"), |_| Err(io::Error::other("kill failed")));
+        let still_running = child.try_wait().unwrap().is_none();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(still_running);
+        assert!(error.to_string().contains("status failed"));
+        assert!(error.to_string().contains("kill failed"));
+        assert!(error.to_string().contains("may still be running"));
     }
     #[cfg(unix)]
     #[test]
