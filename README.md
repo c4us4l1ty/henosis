@@ -187,7 +187,9 @@ and journal before retrying. A runner error also does not prove the command
 had no effects. Storage failures, process termination, or power loss can still
 leave incomplete or corrupt journals; this is not transactional execution.
 Older command-result records without attempt IDs remain readable. Older Henosis
-versions cannot read the new attempt events.
+versions cannot read the new attempt events. Pre-run artifact observations are
+stored only with a completed command result: an interrupted attempt or runner
+error has no persisted before-and-after comparison.
 
 ### Compare an artifact with a recorded result
 

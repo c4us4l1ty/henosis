@@ -350,6 +350,14 @@ mod tests {
         recorded.artifact_before = Some(henosis_evidence::ArtifactBefore::Hashed { sha256: "a".repeat(64) });
         let recorded_json = serde_json::to_string(&recorded).unwrap();
         assert_eq!(serde_json::from_str::<henosis_evidence::Evidence>(&recorded_json).unwrap(), recorded);
+        recorded.artifact_error = None;
+        recorded.artifact_sha256 = Some("b".repeat(64));
+        assert_eq!(recorded.artifact_change(), henosis_evidence::ArtifactChange::Changed);
+        recorded.artifact_before = Some(henosis_evidence::ArtifactBefore::Hashed { sha256: "not-a-digest".into() });
+        assert_eq!(recorded.artifact_change(), henosis_evidence::ArtifactChange::Unavailable);
+        recorded.artifact_before = Some(henosis_evidence::ArtifactBefore::NotFound);
+        recorded.artifact_sha256 = Some("bad".into());
+        assert_eq!(recorded.artifact_change(), henosis_evidence::ArtifactChange::Unavailable);
         assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 1, error: "bad".into() }).is_err());
         assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).unwrap(), 4);
         assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());
