@@ -20,16 +20,21 @@ jobs:
           sed 's/\x1b\[[0-9;]*m//g' /tmp/cargo_output.txt | grep -E 'error\[|mismatched|cannot borrow|cannot find|help:|note:|unused variable|unused import' | while IFS= read -r line; do
             echo "::error::${line}"
           done
+        shell: bash
         if: always()
       - run: cargo test --locked --workspace 2>&1 | tee /tmp/test_output.txt || true
+        shell: bash
       - run: |
           sed 's/\x1b\[[0-9;]*m//g' /tmp/test_output.txt | grep -E 'error\[|panicked|assertion|FAILED|failures:' | while IFS= read -r line; do
             echo "::error::${line}"
           done
+        shell: bash
         if: always()
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/clippy_output.txt || true
+        shell: bash
       - run: |
           sed 's/\x1b\[[0-9;]*m//g' /tmp/clippy_output.txt | grep -E 'warning:|error:' | while IFS= read -r line; do
             echo "::error::${line}"
           done
+        shell: bash
         if: always()
