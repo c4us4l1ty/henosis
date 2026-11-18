@@ -179,7 +179,7 @@ impl Identity {
         // A 32-byte HKDF-SHA256 output is always within the expansion limit.
         hkdf.expand(IDENTITY_INFO, key.as_mut())
             .expect("valid HKDF output length");
-        let signing_key = SigningKey::from_bytes(&*key);
+        let signing_key = SigningKey::from_bytes(&key);
         Ok(Self { signing_key })
     }
 

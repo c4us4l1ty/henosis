@@ -54,6 +54,7 @@ pub enum DominanceRelation {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DominanceReport {
+    pub id: String,
     pub action: String,
     pub net_interval: Interval,
     pub dominated_by: Vec<String>,
@@ -82,6 +83,7 @@ pub fn analyze(objectives: &[Objective]) -> Result<Vec<DominanceReport>, String>
     for obj in objectives {
         obj.validate()?;
         reports.push(DominanceReport {
+            id: obj.id.clone(),
             action: obj.action.clone(),
             net_interval: obj.net(),
             dominated_by: Vec::new(),

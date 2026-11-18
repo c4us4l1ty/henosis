@@ -99,7 +99,7 @@ pub fn evaluate_option(
     let objective_report = context
         .dominance_reports
         .iter()
-        .find(|r| r.action == option.objective_id)
+        .find(|r| r.id == option.objective_id)
         .ok_or_else(|| format!("no dominance report for objective '{}'", option.objective_id))?;
 
     let wall_report = option
