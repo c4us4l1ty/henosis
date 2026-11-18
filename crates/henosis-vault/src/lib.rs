@@ -143,8 +143,8 @@ pub fn derive_purpose_key(
     if mnemonic.word_count() != 12 {
         return Err(IdentityError::WrongWordCount);
     }
-    let seed = Zeroizing::new(mnemonic.to_seed(passphrase));
-    let hkdf = Hkdf::<Sha256>::new(Some(SUBKEY_SALT), seed.as_ref());
+    let seed = mnemonic.to_seed(passphrase);
+    let hkdf = Hkdf::<Sha256>::new(Some(SUBKEY_SALT), seed.expose_secret());
     let mut out = Zeroizing::new([0u8; 32]);
     hkdf.expand(purpose, out.as_mut())
         .expect("valid HKDF output length");
@@ -173,8 +173,8 @@ impl Identity {
         if mnemonic.word_count() != 12 {
             return Err(IdentityError::WrongWordCount);
         }
-        let seed = Zeroizing::new(mnemonic.to_seed(passphrase));
-        let hkdf = Hkdf::<Sha256>::new(Some(IDENTITY_SALT), seed.as_ref());
+        let seed = mnemonic.to_seed(passphrase);
+        let hkdf = Hkdf::<Sha256>::new(Some(IDENTITY_SALT), seed.expose_secret());
         let mut key = Zeroizing::new([0u8; 32]);
         // A 32-byte HKDF-SHA256 output is always within the expansion limit.
         hkdf.expand(IDENTITY_INFO, key.as_mut())
