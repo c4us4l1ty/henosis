@@ -13,8 +13,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: |
-          cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt || true
+          cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt
           echo "CARGO_EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_ENV
+          exit ${PIPESTATUS[0]}
         shell: bash
       - run: |
           sed 's/\x1b\[[0-9;]*m//g' /tmp/cargo_output.txt | grep -E 'error\[|mismatched|cannot borrow|cannot find|help:|note:|unused variable|unused import' | while IFS= read -r line; do
@@ -22,19 +23,9 @@ jobs:
           done
         shell: bash
         if: always()
-      - run: cargo test --locked --workspace 2>&1 | tee /tmp/test_output.txt || true
+      - run: cargo test --locked --workspace
         shell: bash
-      - run: |
-          sed 's/\x1b\[[0-9;]*m//g' /tmp/test_output.txt | grep -E 'error\[|panicked|assertion|FAILED|failures:' | while IFS= read -r line; do
-            echo "::error::${line}"
-          done
+        if: env.CARGO_EXIT_CODE == '0'
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
         shell: bash
-        if: always()
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/clippy_output.txt || true
-        shell: bash
-      - run: |
-          sed 's/\x1b\[[0-9;]*m//g' /tmp/clippy_output.txt | grep -E 'warning:|error:' | while IFS= read -r line; do
-            echo "::error::${line}"
-          done
-        shell: bash
-        if: always()
+        if: env.CARGO_EXIT_CODE == '0'
