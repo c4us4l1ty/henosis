@@ -44,6 +44,7 @@ fn sample_project_evidence_and_interruption_workflow() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("COMMAND RESULT for 1 (not a verified capability)"), "{text}");
     assert!(text.contains("Match: true"), "{text}");
+    assert!(text.contains("Timeout cleanup: not attempted (no timeout)"), "{text}");
     assert!(text.contains("Artifact before: not found  Comparison: APPEARED"), "{text}");
     assert!(text.contains("result 3: MATCH"), "{text}");
     assert_eq!(std::fs::read(dir.path().join("result.txt")).unwrap(), b"14\n");

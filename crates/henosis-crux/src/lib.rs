@@ -343,11 +343,13 @@ mod tests {
         let evidence_json = serde_json::to_string(&evidence).unwrap();
         assert!(!evidence_json.contains("env_keys"));
         assert!(!evidence_json.contains("artifact_before"));
+        assert!(!evidence_json.contains("timeout_cleanup"));
         let legacy_evidence = serde_json::from_str::<henosis_evidence::Evidence>(&evidence_json).unwrap();
         assert_eq!(legacy_evidence, evidence);
         assert_eq!(legacy_evidence.artifact_change(), henosis_evidence::ArtifactChange::Unavailable);
         let mut recorded = evidence.clone();
         recorded.artifact_before = Some(henosis_evidence::ArtifactBefore::Hashed { sha256: "a".repeat(64) });
+        recorded.timeout_cleanup = Some(henosis_evidence::TimeoutCleanup::UnixProcessGroup { signal_error: Some("permission denied".into()) });
         let recorded_json = serde_json::to_string(&recorded).unwrap();
         assert_eq!(serde_json::from_str::<henosis_evidence::Evidence>(&recorded_json).unwrap(), recorded);
         recorded.artifact_error = None;
