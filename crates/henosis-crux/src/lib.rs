@@ -285,6 +285,35 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
     #[test]
+    fn unfinished_attempts_track_results_and_reject_mismatched_references() {
+        let path = path();
+        append(&path, proposal()).unwrap();
+        let request = henosis_evidence::Request { project: "/project".into(), program: "/tool".into(), arguments: vec!["arg".into()], artifact: "out".into(), expected_exit: 0 };
+        assert_eq!(append(&path, Event::ExperimentStarted { proposal: 1, request: request.clone() }).unwrap(), 2);
+        let evidence = henosis_evidence::Evidence {
+            project: request.project.clone(), program: request.program.clone(), arguments: request.arguments.clone(), artifact: request.artifact.clone(), expected_exit: 0,
+            exit_code: Some(0), timed_out: false, stdout: String::new(), stderr: String::new(),
+            stdout_truncated: false, stderr_truncated: false, stdout_lossy: Some(false), stderr_lossy: Some(false), output_incomplete: false,
+            artifact_sha256: None, artifact_error: Some("missing".into()),
+        };
+        assert_eq!(unfinished(&read(&path).unwrap()).unwrap(), vec![(2, 1)]);
+        let mut bad = evidence.clone();
+        bad.program = "/different".into();
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: bad }).is_err());
+        assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 1, error: "bad".into() }).is_err());
+        assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).unwrap(), 3);
+        assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());
+        // Earlier journals have no attempt field; they remain readable.
+        let mut legacy = serde_json::to_value(Event::CommandResult { proposal: 1, attempt: None, evidence }).unwrap();
+        assert!(legacy.as_object_mut().unwrap().remove("attempt").is_none());
+        let decoded: Event = serde_json::from_value(legacy).unwrap();
+        assert!(matches!(decoded, Event::CommandResult { attempt: None, .. }));
+        assert_eq!(append(&path, Event::ExperimentStarted { proposal: 1, request }).unwrap(), 4);
+        append(&path, Event::ExperimentFailed { proposal: 1, attempt: 4, error: "spawn failed".into() }).unwrap();
+        assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
     fn empty_existing_journal_is_distinct_from_missing_journal() {
         let path = path();
         assert_eq!(read(&path).unwrap_err().kind(), io::ErrorKind::NotFound);

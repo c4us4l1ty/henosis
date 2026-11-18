@@ -167,3 +167,27 @@ fn trusted_experiment_is_recorded_and_visible_in_proposal_history() {
     assert!(stdout.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), "{stdout}");
     assert_eq!(henosis_crux::read(&directory.path().join("crux.jsonl")).unwrap().len(), 3);
 }
+
+#[test]
+fn unfinished_attempt_and_runner_failure_are_visible() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("crux.jsonl");
+    let project = directory.path().to_str().unwrap().replace('\\', "/");
+    let missing_program = directory.path().join("no-such-executable").to_str().unwrap().replace('\\', "/");
+    henosis_crux::append(&path, henosis_crux::Event::Proposed { goal: "g".into(), hypothesis: "h".into(), test: "t".into() }).unwrap();
+    henosis_crux::append(&path, henosis_crux::Event::ExperimentStarted { proposal: 1, request: henosis_evidence::Request {
+        project: project.clone(), artifact: "artifact".into(), program: missing_program.clone(), expected_exit: 0, arguments: vec![],
+    }}).unwrap();
+    let input = format!("pending crux.jsonl\nrun crux.jsonl 1 \"{project}\" artifact 0 \"{missing_program}\"\npending crux.jsonl\nshow crux.jsonl 1\nexit\n");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
+        .current_dir(directory.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(stdout.contains("Attempt 2 for proposal 1: outcome not recorded"), "{stdout}");
+    assert!(stdout.contains("RUNNER ERROR for proposal 1, attempt 3"), "{stdout}");
+    let events = henosis_crux::read(&path).unwrap();
+    assert_eq!(henosis_crux::unfinished(&events).unwrap(), vec![(2, 1)]);
+}
