@@ -154,7 +154,9 @@ Arguments are passed directly; no shell is invoked unless explicitly requested.
 The child receives an empty environment and no terminal input. This runs **trusted
 software only**, not a sandbox. It can read files, use the network, and launch
 descendants. A 30-second timeout kills only the direct child; descendants may
-continue. Output is drained but only the first 16 KiB per stream is retained.
+continue. Output is drained but only the first 16 KiB per stream is retained. Invalid
+UTF-8 is replaced for display and storage, with a lossiness flag; older results
+may not include that flag.
 If descendants keep pipes open, capture stops waiting after one second and marks
 output incomplete; reader threads may persist until the pipes close.
 

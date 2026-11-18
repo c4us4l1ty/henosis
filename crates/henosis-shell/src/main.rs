@@ -26,12 +26,12 @@ fn print_event(id: usize, event: &Event) {
         Event::Assessed { proposal, information, failure, cost } => println!("{}  ASSESSMENT for {} (subjective)\n  Information: {}  Failure: {}  Cost: {}", id, proposal, information, failure, cost),
         Event::CommandResult { proposal, evidence } => {
             let matched = !evidence.timed_out && evidence.exit_code == Some(evidence.expected_exit);
-            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Artifact: {}  SHA-256: {}\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout: {}\n  Stderr: {}", id, proposal,
+            println!("{}  COMMAND RESULT for {} (not a verified capability)\n  Project: {}\n  Program: {}\n  Arguments: {:?}\n  Expected exit: {}  Actual exit: {:?}  Match: {}  Timed out: {}\n  Artifact: {}  SHA-256: {}\n  Artifact error: {}\n  Output incomplete: {}  Stdout truncated: {}  Stderr truncated: {}\n  Stdout lossy: {:?}  Stderr lossy: {:?} (None means unknown)\n  Stdout: {}\n  Stderr: {}", id, proposal,
                 terminal_text(&evidence.project), terminal_text(&evidence.program), evidence.arguments.iter().map(|arg| terminal_text(arg)).collect::<Vec<_>>(),
                 evidence.expected_exit, evidence.exit_code, matched, evidence.timed_out, terminal_text(&evidence.artifact),
                 evidence.artifact_sha256.as_deref().map(terminal_text).unwrap_or_else(|| "unavailable".into()),
                 evidence.artifact_error.as_deref().map(terminal_text).unwrap_or_else(|| "none".into()),
-                evidence.output_incomplete, evidence.stdout_truncated, evidence.stderr_truncated,
+                evidence.output_incomplete, evidence.stdout_truncated, evidence.stderr_truncated, evidence.stdout_lossy, evidence.stderr_lossy,
                 terminal_text(&evidence.stdout), terminal_text(&evidence.stderr));
         },
         Event::StatusChanged { proposal, closed, reason } => println!("{}  {} proposal {} (user-reported)\n  Reason: {}", id, if *closed { "CLOSED" } else { "REOPENED" }, proposal, terminal_text(reason)),

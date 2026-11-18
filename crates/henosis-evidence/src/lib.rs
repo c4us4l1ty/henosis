@@ -29,6 +29,10 @@ pub struct Evidence {
     pub stderr: String,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    #[serde(default)]
+    pub stdout_lossy: Option<bool>,
+    #[serde(default)]
+    pub stderr_lossy: Option<bool>,
     pub output_incomplete: bool,
     pub artifact_sha256: Option<String>,
     pub artifact_error: Option<String>,
@@ -129,16 +133,25 @@ fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, a
             Err(_) => break,
         }
     }
-    let stdout = stdout.lock().unwrap_or_else(|e| e.into_inner());
-    let stderr = stderr.lock().unwrap_or_else(|e| e.into_inner());
+    // Snapshot output and release both locks before file I/O; descendants may
+    // still be writing to their pipes and readers must remain able to drain.
+    let (stdout_text, stdout_truncated, stdout_failed, stdout_lossy) = {
+        let capture = stdout.lock().unwrap_or_else(|e| e.into_inner());
+        (String::from_utf8_lossy(&capture.bytes).into_owned(), capture.truncated, capture.failed, std::str::from_utf8(&capture.bytes).is_err())
+    };
+    let (stderr_text, stderr_truncated, stderr_failed, stderr_lossy) = {
+        let capture = stderr.lock().unwrap_or_else(|e| e.into_inner());
+        (String::from_utf8_lossy(&capture.bytes).into_owned(), capture.truncated, capture.failed, std::str::from_utf8(&capture.bytes).is_err())
+    };
     let hash = artifact_hash(&directory.join(artifact_path));
     let (artifact_sha256, artifact_error) = match hash { Ok(hash) => (Some(hash), None), Err(error) => (None, Some(error.to_string())) };
     Ok(Evidence {
         project: project.into(), program: program.into(), arguments: arguments.to_vec(), artifact: artifact.into(), expected_exit,
         exit_code: status.code(), timed_out,
-        stdout: String::from_utf8_lossy(&stdout.bytes).into_owned(), stderr: String::from_utf8_lossy(&stderr.bytes).into_owned(),
-        stdout_truncated: stdout.truncated, stderr_truncated: stderr.truncated,
-        output_incomplete: finished != 2 || stdout.failed || stderr.failed,
+        stdout: stdout_text, stderr: stderr_text,
+        stdout_truncated, stderr_truncated,
+        stdout_lossy: Some(stdout_lossy), stderr_lossy: Some(stderr_lossy),
+        output_incomplete: finished != 2 || stdout_failed || stderr_failed,
         artifact_sha256, artifact_error,
     })
 }
@@ -157,6 +170,15 @@ mod tests {
         assert_eq!(result.stderr, "error");
         assert_eq!(result.artifact_sha256.as_deref(), Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
         assert!(!result.output_incomplete);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn invalid_utf8_is_marked_as_lossy() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = run(dir.path().to_str().unwrap(), "missing", 0, "/bin/sh", &["-c".into(), "printf '\\377'; printf normal >&2".into()]).unwrap();
+        assert_eq!(result.stdout_lossy, Some(true));
+        assert_eq!(result.stderr_lossy, Some(false));
+        assert_eq!(result.stdout, "\u{fffd}");
     }
     #[cfg(unix)]
     #[test]
