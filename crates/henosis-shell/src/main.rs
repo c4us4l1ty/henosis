@@ -879,12 +879,9 @@ fn workspace() -> io::Result<()> {
             },
             "export" if words.len() == 3 => match words[2].as_str() {
                 "json" => match henosis_crux::read(Path::new(&words[1])) {
-                    Ok(events) => {
-                        println!("[");
-                        for (i, event) in events.iter().enumerate() {
-                            let comma = if i + 1 < events.len() { "," } else { "" };
-                            println!("  {}{comma}", format!("{event:?}").replace('\"', "\\\""));
-                        }
+                        let json = serde_json::to_string_pretty(&events)
+                            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+                        println!("{json}");
                         println!("]");
                     },
                     Err(error) => eprintln!("Could not read journal: {error}"),
