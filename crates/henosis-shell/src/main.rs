@@ -7,12 +7,12 @@ use henosis_dag::{
     QuarantineItem, RealizationContract, VerificationEntry, Worldline, WorldlineOp,
 };
 use henosis_vault::Identity;
-use henosis_akashi::{build_bundle, load_bundle, save_bundle, BundleInput};
+use henosis_akashi::{build_bundle, load_bundle, save_bundle, verify_from_evidence, BundleInput};
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  stop-group ID                        Stop a child and its process group (Unix)\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  runenv FILE ID PROJECT ARTIFACT EXIT KEY[,KEY...] PROGRAM [ARGS...]\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  drift FILE                           Report artifact drift across journal command results\n  stats FILE                           Show journal event statistics\n  search FILE PATTERN                  Search journal events by text pattern\n  export FILE FORMAT                   Export journal to json or csv\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  dag init FILE                        Create a new Worldline Merkle-DAG file\n  dag node FILE ID KIND TITLE DOMAIN SUMMARY STATUS PROVENANCE  Upsert a World Model node\n  dag contract FILE ID TITLE OUTPUT VERIFICATION COST [PREREQ...]  Upsert a realization contract\n  dag verify FILE NODE OPERATOR PROVENANCE EVIDENCE_SHA BLACKOUT SUMMARY  Record a verification\n  dag fail FILE ID TARGET ASSUMPTION TRIGGER PREDICTED OBSERVED [EVIDENCE_SHA]  Record a failure atlas entry\n  dag expose FILE ID SOURCE TOPIC NOTES [PROMPT_SHA]  Quarantine an exposure\n  dag resolve FILE EXPOSURE_ID NODE_ID  Resolve a quarantined exposure\n  dag tag FILE TAGNAME COMMITID        Tag a commit\n  dag log FILE [BRANCH]                Show commit log\n  dag state FILE                       Materialize head World Model state\n  dag verifyall FILE [REQUIRE_SIGS]    Verify every commit\n  dag branch FILE NAME [FROM_COMMIT]   Create a branch\n  dag checkout FILE BRANCH             Switch branches\n  dag merge FILE SOURCE_BRANCH RATIONALE  Merge a branch into head\n  dag key PHRASE [PASSPHRASE]             Recover an Ed25519 identity into this session\n  dag whoami                              Show the session key fingerprint\n  akashi bundle FILE NODE OUTPUT.hcap [SIGN true/false]  Build and sign a capability bundle\n  akashi verify-bundle FILE.hcap [STRICT true/false]     Load and verify a capability bundle\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  stop-group ID                        Stop a child and its process group (Unix)\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  runenv FILE ID PROJECT ARTIFACT EXIT KEY[,KEY...] PROGRAM [ARGS...]\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  drift FILE                           Report artifact drift across journal command results\n  stats FILE                           Show journal event statistics\n  search FILE PATTERN                  Search journal events by text pattern\n  export FILE FORMAT                   Export journal to json or csv\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  dag init FILE                        Create a new Worldline Merkle-DAG file\n  dag node FILE ID KIND TITLE DOMAIN SUMMARY STATUS PROVENANCE  Upsert a World Model node\n  dag contract FILE ID TITLE OUTPUT VERIFICATION COST [PREREQ...]  Upsert a realization contract\n  dag verify FILE NODE OPERATOR PROVENANCE EVIDENCE_SHA BLACKOUT SUMMARY  Record a verification\n  dag fail FILE ID TARGET ASSUMPTION TRIGGER PREDICTED OBSERVED [EVIDENCE_SHA]  Record a failure atlas entry\n  dag expose FILE ID SOURCE TOPIC NOTES [PROMPT_SHA]  Quarantine an exposure\n  dag resolve FILE EXPOSURE_ID NODE_ID  Resolve a quarantined exposure\n  dag tag FILE TAGNAME COMMITID        Tag a commit\n  dag log FILE [BRANCH]                Show commit log\n  dag state FILE                       Materialize head World Model state\n  dag verifyall FILE [REQUIRE_SIGS]    Verify every commit\n  dag branch FILE NAME [FROM_COMMIT]   Create a branch\n  dag checkout FILE BRANCH             Switch branches\n  dag merge FILE SOURCE_BRANCH RATIONALE  Merge a branch into head\n  dag key PHRASE [PASSPHRASE]             Recover an Ed25519 identity into this session\n  dag whoami                              Show the session key fingerprint\n  akashi bundle FILE NODE OUTPUT.hcap [SIGN true/false]  Build and sign a capability bundle\n  akashi verify-bundle FILE.hcap [STRICT true/false]     Load and verify a capability bundle\n  akashi verify-from-evidence JOURNAL RESULT_ID NODE_ID OPERATOR PROVENANCE BLACKOUT SUMMARY DAG_FILE\n                                                          Verify a crux command result and record it in a dag worldline\n  akashi import BUNDLE.hcap DAG_FILE                      Import a signed peer bundle (provenance=External)\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 // User-controlled text must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
@@ -635,7 +635,125 @@ fn workspace() -> io::Result<()> {
                         Err(error) => eprintln!("Could not verify bundle: {error}"),
                     }
                 },
-                _ => eprintln!("Unknown akashi subcommand. Try: bundle, verify-bundle."),
+                "verify-from-evidence" if words.len() == 10 => {
+                    let journal_path = Path::new(&words[2]);
+                    let result_id: u64 = match words[3].parse() {
+                        Ok(id) => id,
+                        Err(error) => { eprintln!("Result ID must be a number: {error}"); continue; }
+                    };
+                    let node_id = words[4].clone();
+                    let operator = match ProofOperator::parse(words[5].as_str()) {
+                        Ok(o) => o,
+                        Err(error) => { eprintln!("{error}"); continue; }
+                    };
+                    let provenance = match AssistanceProvenance::parse(words[6].as_str()) {
+                        Ok(p) => p,
+                        Err(error) => { eprintln!("{error}"); continue; }
+                    };
+                    let summary = words[8].clone();
+                    let dag_path = Path::new(&words[9]);
+
+                    // Read the crux journal and locate the CommandResult evidence for this result ID.
+                    let events = match henosis_crux::read(journal_path) {
+                        Ok(ev) => ev,
+                        Err(error) => { eprintln!("Could not read journal: {error}"); continue; }
+                    };
+                    let evidence = match result_id.checked_sub(1)
+                        .and_then(|n| usize::try_from(n).ok())
+                        .and_then(|n| events.get(n))
+                        .cloned()
+                    {
+                        Some(Event::CommandResult { evidence, .. }) => evidence,
+                        Some(_) => { eprintln!("Event {result_id} is not a command result."); continue; },
+                        None => { eprintln!("No command result with ID {result_id} in journal."); continue; },
+                    };
+
+                    // Verify the evidence via Akashi Operator-implemented check.
+                    let entry = match verify_from_evidence(
+                        &node_id,
+                        operator,
+                        provenance,
+                        &evidence,
+                        None, // no proxy blackout receipt wired into the shell yet
+                        &summary,
+                    ) {
+                        Ok(e) => e,
+                        Err(error) => { eprintln!("Verification failed: {error}"); continue; }
+                    };
+
+                    // Record the verification into the dag worldline. Upsert a minimal
+                    // node first if the capability isn't tracked yet.
+                    let mut wl = match Worldline::load(dag_path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let state = match wl.materialize_head() {
+                        Ok(s) => s,
+                        Err(error) => { eprintln!("Could not materialize state: {error}"); continue; }
+                    };
+                    let mut ops: Vec<WorldlineOp> = Vec::new();
+                    if !state.nodes.contains_key(&node_id) {
+                        ops.push(WorldlineOp::UpsertNode {
+                            node: Box::new(Node {
+                                id: node_id.clone(),
+                                kind: EntityKind::Capability,
+                                title: node_id.clone(),
+                                domain: "shell".into(),
+                                summary: "Created from akashi verify-from-evidence; status set by verification.".into(),
+                                status: EpistemicStatus::Hypothesized,
+                                provenance: AssistanceProvenance::External,
+                                evidence_sha256: vec![],
+                                proof_operators: vec![],
+                            }),
+                        });
+                    }
+                    ops.push(WorldlineOp::RecordVerification { entry: Box::new(entry) });
+                    match wl.commit(
+                        format!("Shell: verify node {node_id} from evidence {result_id}"),
+                        ops,
+                        session_key.as_ref(),
+                    ) {
+                        Ok(id) => match wl.save(dag_path) {
+                            Ok(()) => println!("Recorded verification for {node_id} as commit {id}."),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not commit verification: {error}"),
+                    }
+                },
+                "import" if words.len() == 4 => {
+                    let bundle_path = Path::new(&words[2]);
+                    let dag_path = Path::new(&words[3]);
+
+                    // Load and verify the peer bundle (signature required for trust).
+                    let bundle = match load_bundle(bundle_path, true) {
+                        Ok(b) => b,
+                        Err(error) => { eprintln!("Could not load bundle: {error}"); continue; }
+                    };
+
+                    // Convert to import ops: peer provenance is stamped External so it never
+                    // inflates the local unassisted capability state H.
+                    let ops = match bundle.to_peer_import_ops() {
+                        Ok(ops) => ops,
+                        Err(error) => { eprintln!("Bundle not importable: {error}"); continue; }
+                    };
+
+                    let mut wl = match Worldline::load(dag_path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    match wl.commit(
+                        format!("Shell: import bundle {} ({})", bundle.bundle_id, bundle.capability.id),
+                        ops,
+                        session_key.as_ref(),
+                    ) {
+                        Ok(id) => match wl.save(dag_path) {
+                            Ok(()) => println!("Imported bundle {} into worldline as commit {}.", bundle.bundle_id, id),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not commit import: {error}"),
+                    }
+                },
+                _ => eprintln!("Unknown akashi subcommand. Try: bundle, verify-bundle, verify-from-evidence, import."),
             },
             "drift" if words.len() == 2 => match henosis_leverage::detect_drift(Path::new(&words[1])) {
                 Ok(report) => {
