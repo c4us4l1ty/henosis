@@ -150,7 +150,9 @@ mod tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let mut output = String::new();
         loop {
-            for chunk in backend.output.try_iter() { output.push_str(&chunk); }
+            for chunk in backend.output.try_iter() {
+                output.push_str(&chunk);
+            }
             if let Some(status) = backend.child.try_wait().unwrap() {
                 assert!(status.success());
                 break;
@@ -168,5 +170,4 @@ mod tests {
         assert!(output.contains("No processes."), "{output}");
         assert!(output.contains("Commands:"), "{output}");
     }
-
 }
