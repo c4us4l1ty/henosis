@@ -47,7 +47,10 @@ impl Backend {
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
         let (tx, output) = mpsc::sync_channel(256);
-        for (name, stream) in [("stdout", Box::new(stdout) as Box<dyn Read + Send>), ("stderr", Box::new(stderr))] {
+        for (name, stream) in [
+            ("stdout", Box::new(stdout) as Box<dyn Read + Send>),
+            ("stderr", Box::new(stderr)),
+        ] {
             let tx = tx.clone();
             thread::spawn(move || read_output(stream, name, tx));
         }
@@ -88,7 +91,12 @@ impl Backend {
         if line.contains(['\r', '\n', '\0']) {
             return Err("Enter one command at a time.".into());
         }
-        if self.child.try_wait().map_err(|e| format!("Cannot inspect workspace: {e}"))?.is_some() {
+        if self
+            .child
+            .try_wait()
+            .map_err(|e| format!("Cannot inspect workspace: {e}"))?
+            .is_some()
+        {
             return Err("Workspace has exited. Start a new connection.".into());
         }
         self.commands
@@ -107,16 +115,26 @@ fn decode(pending: &mut Vec<u8>, eof: bool) -> String {
     let mut consumed = 0;
     while consumed < pending.len() {
         match std::str::from_utf8(&pending[consumed..]) {
-            Ok(rest) => { text.push_str(rest); consumed = pending.len(); }
+            Ok(rest) => {
+                text.push_str(rest);
+                consumed = pending.len();
+            }
             Err(error) => {
                 let valid = error.valid_up_to();
-                text.push_str(std::str::from_utf8(&pending[consumed..consumed + valid]).expect("valid prefix"));
+                text.push_str(
+                    std::str::from_utf8(&pending[consumed..consumed + valid])
+                        .expect("valid prefix"),
+                );
                 consumed += valid;
                 if let Some(len) = error.error_len() {
-                    text.push('\u{fffd}'); consumed += len;
+                    text.push('\u{fffd}');
+                    consumed += len;
                 } else if eof {
-                    text.push('\u{fffd}'); consumed = pending.len();
-                } else { break; }
+                    text.push('\u{fffd}');
+                    consumed = pending.len();
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -130,16 +148,25 @@ fn read_output(mut stream: Box<dyn Read + Send>, name: &str, tx: mpsc::SyncSende
     loop {
         let eof = match stream.read(&mut buffer) {
             Ok(0) => true,
-            Ok(n) => { pending.extend_from_slice(&buffer[..n]); false }
+            Ok(n) => {
+                pending.extend_from_slice(&buffer[..n]);
+                false
+            }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => {
-                let _ = tx.send(Event::Error(format!("Workspace {name} read failed: {error}")));
+                let _ = tx.send(Event::Error(format!(
+                    "Workspace {name} read failed: {error}"
+                )));
                 true
             }
         };
         let text = decode(&mut pending, eof);
-        if !text.is_empty() && tx.send(Event::Output(text)).is_err() { return; }
-        if eof { return; }
+        if !text.is_empty() && tx.send(Event::Output(text)).is_err() {
+            return;
+        }
+        if eof {
+            return;
+        }
     }
 }
 
@@ -183,7 +210,10 @@ mod tests {
         let mut output = String::new();
         loop {
             for chunk in backend.output.try_iter() {
-                match chunk { Event::Output(text) => output.push_str(&text), Event::Error(error) => panic!("{error}") }
+                match chunk {
+                    Event::Output(text) => output.push_str(&text),
+                    Event::Error(error) => panic!("{error}"),
+                }
             }
             if let Some(status) = backend.child.try_wait().unwrap() {
                 assert!(status.success());
@@ -197,7 +227,10 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         while let Ok(chunk) = backend.output.recv_timeout(Duration::from_secs(1)) {
-            match chunk { Event::Output(text) => output.push_str(&text), Event::Error(error) => panic!("{error}") }
+            match chunk {
+                Event::Output(text) => output.push_str(&text),
+                Event::Error(error) => panic!("{error}"),
+            }
         }
         assert!(output.contains("No processes."), "{output}");
         assert!(output.contains("Commands:"), "{output}");
@@ -219,13 +252,20 @@ mod tests {
         struct Broken(bool);
         impl Read for Broken {
             fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
-                let kind = if self.0 { std::io::ErrorKind::Other } else { self.0 = true; std::io::ErrorKind::Interrupted };
+                let kind = if self.0 {
+                    std::io::ErrorKind::Other
+                } else {
+                    self.0 = true;
+                    std::io::ErrorKind::Interrupted
+                };
                 Err(std::io::Error::from(kind))
             }
         }
         let (tx, rx) = mpsc::sync_channel(4);
         read_output(Box::new(Broken(false)), "stdout", tx);
-        assert!(matches!(rx.recv().unwrap(), Event::Error(text) if text.contains("stdout read failed")));
+        assert!(
+            matches!(rx.recv().unwrap(), Event::Error(text) if text.contains("stdout read failed"))
+        );
     }
 
     #[test]
@@ -237,12 +277,12 @@ mod tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while backend.child.try_wait().unwrap().is_none() {
             if std::time::Instant::now() >= deadline {
-                let _ = backend.child.kill(); let _ = backend.child.wait();
+                let _ = backend.child.kill();
+                let _ = backend.child.wait();
                 panic!("backend did not exit");
             }
             thread::sleep(Duration::from_millis(10));
         }
         assert!(backend.send("list".into()).unwrap_err().contains("exited"));
     }
-
 }

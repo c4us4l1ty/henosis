@@ -162,7 +162,10 @@ impl Desktop {
                     shell_words::split(&self.arguments)
                         .map_err(|e| e.to_string())
                         .and_then(|args| {
-                            let mut words = vec![if cfg!(unix) { "launch-group" } else { "launch" }, self.program.as_str()];
+                            let mut words = vec![
+                                if cfg!(unix) { "launch-group" } else { "launch" },
+                                self.program.as_str(),
+                            ];
                             words.extend(args.iter().map(String::as_str));
                             encode(&words)
                         })
@@ -260,7 +263,10 @@ impl eframe::App for Desktop {
         for chunk in chunks {
             match chunk {
                 Event::Output(text) => self.append(&text),
-                Event::Error(error) => { self.append(&format!("\nTransport error: {error}\n")); self.error = error; }
+                Event::Error(error) => {
+                    self.append(&format!("\nTransport error: {error}\n"));
+                    self.error = error;
+                }
             }
         }
         if let Some(backend) = &mut self.backend {
@@ -406,7 +412,10 @@ mod tests {
     }
     #[test]
     fn failed_shutdown_keeps_window_open_for_diagnostics() {
-        let mut app = Desktop { closing: true, ..Desktop::default() };
+        let mut app = Desktop {
+            closing: true,
+            ..Desktop::default()
+        };
         app.record_exit(false);
         assert!(!app.closing);
         assert!(app.error.contains("Cleanup may have failed"));
@@ -414,5 +423,4 @@ mod tests {
         app.record_exit(true);
         assert!(app.closing);
     }
-
 }

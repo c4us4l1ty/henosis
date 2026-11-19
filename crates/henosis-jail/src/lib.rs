@@ -257,19 +257,30 @@ impl Supervisor {
     pub fn stop_group(&mut self, id: u64) -> io::Result<ExitStatus> {
         #[cfg(unix)]
         let group_signal = {
-            let managed = self.children.get(&id).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotFound, "unknown process ID")
-            })?;
+            let managed = self
+                .children
+                .get(&id)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "unknown process ID"))?;
             let pgid = managed.process_group_id.ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "process was not launched with process_group")
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "process was not launched with process_group",
+                )
             })?;
             // Use an absolute executable and explicit signal/options. The old
             // `kill -PGID TERM` treated TERM as a PID and ignored command failure.
-            Command::new("/bin/kill").env_clear()
+            Command::new("/bin/kill")
+                .env_clear()
                 .args(["-s", "TERM", "--", &format!("-{pgid}")])
                 .status()
-                .and_then(|status| if status.success() { Ok(()) } else {
-                    Err(io::Error::other(format!("Process-group signal failed: {status}")))
+                .and_then(|status| {
+                    if status.success() {
+                        Ok(())
+                    } else {
+                        Err(io::Error::other(format!(
+                            "Process-group signal failed: {status}"
+                        )))
+                    }
                 })
         };
         // Fall back to stopping the direct child too.
@@ -384,7 +395,15 @@ mod tests {
         spec2.arg("-c").arg("exit 0");
         let id2 = supervisor.launch(&spec2).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while supervisor.list().unwrap().iter().find(|p| p.id == id2).unwrap().status.is_none() {
+        while supervisor
+            .list()
+            .unwrap()
+            .iter()
+            .find(|p| p.id == id2)
+            .unwrap()
+            .status
+            .is_none()
+        {
             assert!(std::time::Instant::now() < deadline, "child did not exit");
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -398,14 +417,23 @@ mod tests {
         let script = dir.path().join("descendant.sh");
         let marker = dir.path().join("stopped");
         let ready = dir.path().join("ready");
-        std::fs::write(&script, r#"trap 'printf stopped > "$1"; exit 0' TERM
+        std::fs::write(
+            &script,
+            r#"trap 'printf stopped > "$1"; exit 0' TERM
 printf ready > "$2"
 while :; do :; done
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let mut supervisor = Supervisor::new();
         let mut spec = LauncherSpec::new("/bin/sh");
-        spec.arg("-c").arg(r#"/bin/sh "$1" "$2" "$3" & wait"#)
-            .arg("parent").arg(script.as_os_str()).arg(marker.as_os_str()).arg(ready.as_os_str()).process_group();
+        spec.arg("-c")
+            .arg(r#"/bin/sh "$1" "$2" "$3" & wait"#)
+            .arg("parent")
+            .arg(script.as_os_str())
+            .arg(marker.as_os_str())
+            .arg(ready.as_os_str())
+            .process_group();
         let id = supervisor.launch(&spec).unwrap();
         let pgid = supervisor.list().unwrap()[0].pid;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -418,7 +446,11 @@ while :; do :; done
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         // Independent cleanup also runs if the implementation under test failed.
-        let _ = Command::new("/bin/kill").args(["-s", "KILL", "--", &format!("-{pgid}")]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let _ = Command::new("/bin/kill")
+            .args(["-s", "KILL", "--", &format!("-{pgid}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
         assert!(ready.exists(), "descendant never became ready");
         result.unwrap();
         assert!(marker.exists(), "TERM did not reach the descendant");
