@@ -382,6 +382,7 @@ dependencies = [
  "henosis-jail",
  "henosis-leverage",
  "henosis-vault",
+ "serde_json",
  "shell-words",
  "tempfile",
 ]

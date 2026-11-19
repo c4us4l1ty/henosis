@@ -12,6 +12,7 @@ henosis-leverage = { path = "../henosis-leverage" }
 henosis-dag = { path = "../henosis-dag" }
 henosis-vault = { path = "../henosis-vault" }
 henosis-akashi = { path = "../henosis-akashi" }
+serde_json = "1.0"
 shell-words = "1.1"
 
 [dev-dependencies]
