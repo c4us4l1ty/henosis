@@ -203,7 +203,7 @@ fn workspace_compares_artifacts_without_running_commands() {
     let program = env!("CARGO_BIN_EXE_henosis-shell");
     let evidence = henosis_evidence::run(&project, "artifact", 2, program, &["relative".into()]).unwrap();
     henosis_crux::append(&path, Event::Proposed { goal: "g".into(), hypothesis: "h".into(), test: "t".into() }).unwrap();
-    henosis_crux::append(&path, Event::CommandResult { proposal: 1, attempt: None, evidence }).unwrap();
+    henosis_crux::append(&path, Event::CommandResult { proposal: 1, attempt: None, evidence: Box::new(evidence) }).unwrap();
     let compare = || {
         let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
             .current_dir(directory.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();

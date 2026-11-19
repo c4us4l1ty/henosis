@@ -20,7 +20,7 @@ pub enum Event {
     ExperimentStarted { proposal: u64, request: henosis_evidence::Request },
     ExperimentFailed { proposal: u64, attempt: u64, error: String },
     AttemptReviewed { proposal: u64, attempt: u64, note: String },
-    CommandResult { proposal: u64, #[serde(default, skip_serializing_if = "Option::is_none")] attempt: Option<u64>, evidence: henosis_evidence::Evidence },
+    CommandResult { proposal: u64, #[serde(default, skip_serializing_if = "Option::is_none")] attempt: Option<u64>, evidence: Box<henosis_evidence::Evidence> },
 }
 
 /// Maximum journal size accepted by this experimental implementation.
@@ -146,7 +146,7 @@ fn validate(events: &[Event], event: &Event, resolved: &HashSet<u64>) -> io::Res
         Event::AttemptReviewed { proposal, attempt, note } => is_proposal(proposal) && nonempty(note) && attempt_request(*attempt, *proposal).is_some(),
         Event::CommandResult { proposal, attempt, evidence } => is_proposal(proposal)
             && henosis_evidence::validate_env_keys(&evidence.env_keys).is_ok()
-            && attempt.is_none_or(|id| attempt_request(id, *proposal).is_some_and(|request| request.matches(evidence))),
+            && attempt.is_none_or(|id| attempt_request(id, *proposal).is_some_and(|request| request.matches(&evidence))),
         Event::StatusChanged { proposal, reason, .. } => nonempty(reason) && is_proposal(proposal),
         Event::Assessed { proposal, information, failure, cost } => {
             is_proposal(proposal) && [*information, *failure, *cost].iter().all(|n| (1..=5).contains(n))
@@ -339,13 +339,13 @@ mod tests {
         assert_eq!(unfinished(&read(&path).unwrap()).unwrap(), vec![(2, 1)]);
         let mut bad = evidence.clone();
         bad.program = "/different".into();
-        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: bad }).is_err());
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: Box::new(bad) }).is_err());
         let mut bad_env = evidence.clone();
         bad_env.env_keys.push("EXTRA".into());
-        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: bad_env }).is_err());
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: Box::new(bad_env) }).is_err());
         let mut invalid_evidence = evidence.clone();
         invalid_evidence.env_keys = vec!["DUPLICATE".into(), "DUPLICATE".into()];
-        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: None, evidence: invalid_evidence }).is_err());
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: None, evidence: Box::new(invalid_evidence) }).is_err());
         let request_json = serde_json::to_string(&request).unwrap();
         assert!(!request_json.contains("env_keys"));
         assert_eq!(serde_json::from_str::<henosis_evidence::Request>(&request_json).unwrap(), request);
@@ -370,12 +370,12 @@ mod tests {
         recorded.artifact_sha256 = Some("bad".into());
         assert_eq!(recorded.artifact_change(), henosis_evidence::ArtifactChange::Unavailable);
         assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 1, error: "bad".into() }).is_err());
-        assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).unwrap(), 4);
+        assert_eq!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: Box::new(evidence.clone()) }).unwrap(), 4);
         assert!(unfinished(&read(&path).unwrap()).unwrap().is_empty());
         assert!(append(&path, Event::ExperimentFailed { proposal: 1, attempt: 2, error: "duplicate".into() }).is_err());
-        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: evidence.clone() }).is_err());
+        assert!(append(&path, Event::CommandResult { proposal: 1, attempt: Some(2), evidence: Box::new(evidence.clone()) }).is_err());
         // Earlier journals have no attempt field; they remain readable.
-        let mut legacy = serde_json::to_value(Event::CommandResult { proposal: 1, attempt: None, evidence }).unwrap();
+        let mut legacy = serde_json::to_value(Event::CommandResult { proposal: 1, attempt: None, evidence: Box::new(evidence.clone()) }).unwrap();
         assert!(legacy.as_object_mut().unwrap().remove("attempt").is_none());
         let decoded: Event = serde_json::from_value(legacy).unwrap();
         assert!(matches!(decoded, Event::CommandResult { attempt: None, .. }));
