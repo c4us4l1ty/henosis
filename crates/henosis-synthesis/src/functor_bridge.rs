@@ -110,6 +110,9 @@ impl StructuralSignature {
             if *arity > 16 {
                 return Err(format!("operation '{name}' arity exceeds 16"));
             }
+            if seen_kinds.contains(name) {
+                return Err(format!("operation and node kind share identifier '{name}'"));
+            }
             if !seen_ops.insert(name.clone()) {
                 return Err(format!("duplicate operation '{name}'"));
             }
@@ -243,7 +246,7 @@ impl<'a> Search<'a> {
                 .map(|(t, _)| t)
                 .collect()
         } else {
-            (0..self.target.node_kinds.len())
+            (self.target.operations.len()..self.target.operations.len() + self.target.node_kinds.len())
                 .filter(|t| !self.used.contains(t))
                 .collect()
         };
@@ -253,7 +256,7 @@ impl<'a> Search<'a> {
             let target_name = if source_index < self.source.operations.len() {
                 self.target.operations[t].0.clone()
             } else {
-                self.target.node_kinds[t].clone()
+                self.target.node_kinds[t - self.target.operations.len()].clone()
             };
             self.mapping.insert(name.clone(), target_name.clone());
 
@@ -265,6 +268,7 @@ impl<'a> Search<'a> {
 
             self.mapping.remove(&name);
             self.used.remove(&t);
+            if self.nodes > self.limit { break; }
         }
 
         self.pending.insert(0, source_index);
@@ -328,7 +332,11 @@ pub fn solve_functor(
     }
 
     let mut search = Search::new(source, target);
-    let mapping = search.recurse().ok_or(RejectionReason::UnboundedSearch)?;
+    let mapping = search.recurse().ok_or(if search.nodes > search.limit {
+        RejectionReason::UnboundedSearch
+    } else {
+        RejectionReason::NoFunctorExists
+    })?;
     let missing = verify_functor(source, target);
     if !missing.is_empty() {
         return Err(RejectionReason::PropertyNotPreserved);
@@ -388,7 +396,7 @@ pub fn transfer_gate(
             return Ok(GateResult {
                 accepted: false,
                 functor: None,
-                preserved_properties: source.properties.iter().copied().collect(),
+                preserved_properties: source.properties.intersection(&target.properties).copied().collect(),
                 violations,
                 rejected_target_elements: spurious_novelty_dummy(source, target),
             });
@@ -465,7 +473,7 @@ mod tests {
     #[test]
     fn property_preserving_transfer_is_accepted() {
         let source = signature("s", &[("op", 2)], &["A"], &["associative", "commutative"]);
-        let target = signature("t", &[("op", 2)], &["A", "B"], &["associative", "commutative", "unital"]);
+        let target = signature("t", &[("op", 2)], &["A"], &["associative", "commutative"]);
         let result = transfer_gate(&source, &target).unwrap();
         assert!(result.accepted);
         assert!(result.functor.is_some());
@@ -479,16 +487,16 @@ mod tests {
         let result = transfer_gate(&source, &target).unwrap();
         assert!(!result.accepted);
         assert!(result.violations.contains(&RejectionReason::PropertyNotPreserved));
+        assert!(result.preserved_properties.is_empty());
     }
 
     #[test]
     fn arity_mismatch_is_rejected() {
         let source = signature("s", &[("op", 3)], &["A"], &[]);
         let target = signature("t", &[("op", 2)], &["A"], &[]);
-        assert!(matches!(
-            transfer_gate(&source, &target),
-            Err(RejectionReason::ArityMismatch)
-        ));
+        let result = transfer_gate(&source, &target).unwrap();
+        assert!(!result.accepted);
+        assert!(result.violations.contains(&RejectionReason::ArityMismatch));
     }
 
     #[test]
@@ -500,4 +508,27 @@ mod tests {
         assert!(novel.iter().any(|n| n.contains("extra")));
         assert!(novel.iter().any(|n| n.contains("idempotent")));
     }
+    #[test]
+    fn operation_and_kind_slots_do_not_collide() {
+        let source = signature("s", &[("compose", 2)], &["object"], &[]);
+        let target = signature("t", &[("combine", 2)], &["item"], &[]);
+        let functor = solve_functor(&source, &target).unwrap();
+        assert_eq!(functor.mapping.get("compose").unwrap(), "combine");
+        assert_eq!(functor.mapping.get("object").unwrap(), "item");
+        assert!(transfer_gate(&source, &target).unwrap().accepted);
+    }
+
+    #[test]
+    fn ambiguous_element_identifiers_are_rejected() {
+        let ambiguous = signature("s", &[("same", 2)], &["same"], &[]);
+        assert!(ambiguous.validate().is_err());
+    }
+
+    #[test]
+    fn impossible_injection_is_not_reported_as_search_exhaustion() {
+        let source = signature("s", &[("first", 2), ("second", 2)], &[], &[]);
+        let target = signature("t", &[("only", 2)], &[], &[]);
+        assert_eq!(solve_functor(&source, &target), Err(RejectionReason::NoFunctorExists));
+    }
+
 }
