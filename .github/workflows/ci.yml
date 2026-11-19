@@ -1,5 +1,7 @@
 name: Rust
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   test:
     strategy:
@@ -7,35 +9,21 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile workspace tests
         shell: bash
-      - run: |
-          sed 's/\x1b\[[0-9;]*m//g' /tmp/cargo_output.txt | grep -Ei 'error|cannot|unresolved|undefined|mismatch' | while IFS= read -r line; do
-            echo "::error::${line}"
-          done || true
+        run: bash .github/scripts/check-rust.sh test --locked --workspace --no-run
+      - name: Run workspace tests (fail on test errors)
         shell: bash
-        if: always()
-      - run: |
-          set +e
-          cargo test --locked --workspace 2>&1 | tee /tmp/test_output.txt
-          set -e
+        run: bash .github/scripts/check-rust.sh test --locked --workspace
+      # Existing workspace lint warnings are advisory. Compiler/lint errors
+      # still fail the job; the desktop job additionally denies all warnings.
+      - name: Check workspace lints
         shell: bash
-      - run: |
-          sed 's/\x1b\[[0-9;]*m//g' /tmp/test_output.txt | grep -Ei 'error|cannot|unresolved|undefined|mismatch|panicked|FAILED|failures:' | while IFS= read -r line; do
-            echo "::error::${line}"
-          done || true
-        shell: bash
-        if: always()
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings > /tmp/clippy_output.txt 2>&1 || true
-        shell: bash
-      - run: |
-          sed 's/\x1b\[[0-9;]*m//g' /tmp/clippy_output.txt | grep -Ei 'warning|error' | while IFS= read -r line; do
-            echo "::error::${line}"
-          done || true
-        shell: bash
-        if: always()
+        run: bash .github/scripts/check-rust.sh clippy --locked --workspace --all-targets
