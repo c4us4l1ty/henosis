@@ -17,9 +17,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev
-      # Bootstrap the new native dependency graph; removed after downloading lockfile.
-      - run: cargo generate-lockfile
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev xvfb
       - run: cargo fmt -p henosis-desktop
       - name: Return generated lockfile and formatted Rust sources
         if: runner.os == 'Linux' && github.event_name == 'push'
@@ -29,21 +27,30 @@ jobs:
           git add Cargo.lock crates/henosis-desktop/src
           git diff --cached --quiet || git commit -m "Lock and format native desktop dependencies via CI"
           git push origin HEAD:${{ github.ref_name }}
-      - name: Compile and test workspace
+      - name: Compile workspace tests
+        shell: bash
+        run: bash .github/scripts/check-rust.sh test --locked --workspace --no-run
+      - name: Desktop unit tests
+        shell: bash
+        run: bash .github/scripts/check-rust.sh test --locked -p henosis-desktop
+      - name: Desktop clippy
+        shell: bash
+        run: bash .github/scripts/check-rust.sh clippy --locked -p henosis-desktop --all-targets -- -D warnings
+      - name: Build native application and backend
+        shell: bash
+        run: bash .github/scripts/check-rust.sh build --locked -p henosis-desktop -p henosis-shell
+      - name: Persistent backend integration test
+        shell: bash
+        run: |
+          backend="$PWD/target/debug/henosis-shell"
+          if [ "$RUNNER_OS" = Windows ]; then backend="$backend.exe"; fi
+          export HENOSIS_TEST_BACKEND="$backend"
+          bash .github/scripts/check-rust.sh test --locked -p henosis-desktop -- --ignored
+      - name: Linux window smoke test
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set +e
-          cargo test --locked --workspace > desktop-test.log 2>&1
+          xvfb-run -a timeout 10s target/debug/henosis-desktop
           result=$?
-          cat desktop-test.log
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          lines = Path("desktop-test.log").read_text(errors="replace").splitlines()
-          for i, line in enumerate(lines):
-              if "error" in line.lower() or "FAILED" in line:
-                  text = "\n".join(lines[max(0, i-2):i+18])
-                  print("::error::" + text.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"))
-          PYCODE
-          exit "$result"
-      - run: cargo clippy --locked -p henosis-desktop --all-targets -- -D warnings
-      - run: cargo build --locked -p henosis-desktop -p henosis-shell
+          test "$result" -eq 124

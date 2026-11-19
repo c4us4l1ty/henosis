@@ -136,4 +136,37 @@ mod tests {
             ["; echo hi"]
         );
     }
+
+    #[test]
+    #[ignore = "requires HENOSIS_TEST_BACKEND pointing to the built Rust workspace"]
+    fn persistent_workspace_commands_and_graceful_eof() {
+        let path = std::env::var_os("HENOSIS_TEST_BACKEND").expect("set HENOSIS_TEST_BACKEND");
+        let mut backend = Backend::start(Path::new(&path)).unwrap();
+        assert!(backend.send("list\nexit".into()).is_err());
+        backend.send(encode(&["list"]).unwrap()).unwrap();
+        backend.send(encode(&["help"]).unwrap()).unwrap();
+        backend.close();
+        assert!(backend.send("list".into()).is_err());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let mut output = String::new();
+        loop {
+            for chunk in backend.output.try_iter() { output.push_str(&chunk); }
+            if let Some(status) = backend.child.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = backend.child.kill();
+                let _ = backend.child.wait();
+                panic!("workspace did not shut down after EOF: {output}");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        while let Ok(chunk) = backend.output.recv_timeout(Duration::from_secs(1)) {
+            output.push_str(&chunk);
+        }
+        assert!(output.contains("No processes."), "{output}");
+        assert!(output.contains("Commands:"), "{output}");
+    }
+
 }
