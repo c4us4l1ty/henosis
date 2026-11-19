@@ -1,5 +1,7 @@
 name: Desktop
 on: [push, pull_request]
+permissions:
+  contents: write
 jobs:
   desktop:
     strategy:
@@ -18,17 +20,30 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev
       # Bootstrap the new native dependency graph; removed after downloading lockfile.
       - run: cargo generate-lockfile
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Linux'
-        with:
-          name: desktop-lockfile
-          path: Cargo.lock
       - run: cargo fmt -p henosis-desktop
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Linux'
-        with:
-          name: desktop-formatted
-          path: crates/henosis-desktop/src/*.rs
-      - run: cargo test --locked --workspace
+      - name: Return generated lockfile and formatted Rust sources
+        if: runner.os == 'Linux' && github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/henosis-desktop/src
+          git diff --cached --quiet || git commit -m "Lock and format native desktop dependencies via CI"
+          git push origin HEAD:${{ github.ref_name }}
+      - name: Compile and test workspace
+        shell: bash
+        run: |
+          set +e
+          cargo test --locked --workspace > desktop-test.log 2>&1
+          result=$?
+          cat desktop-test.log
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          lines = Path("desktop-test.log").read_text(errors="replace").splitlines()
+          for i, line in enumerate(lines):
+              if "error" in line.lower() or "FAILED" in line:
+                  text = "\n".join(lines[max(0, i-2):i+18])
+                  print("::error::" + text.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"))
+          PYCODE
+          exit "$result"
       - run: cargo clippy --locked -p henosis-desktop --all-targets -- -D warnings
       - run: cargo build --locked -p henosis-desktop -p henosis-shell
