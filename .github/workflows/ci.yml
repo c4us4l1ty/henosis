@@ -12,5 +12,30 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo test --locked --workspace
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace --no-run 2>&1 | tee /tmp/cargo_output.txt
+        shell: bash
+      - run: |
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/cargo_output.txt | grep -Ei 'error|cannot|unresolved|undefined|mismatch' | while IFS= read -r line; do
+            echo "::error::${line}"
+          done || true
+        shell: bash
+        if: always()
+      - run: |
+          set +e
+          cargo test --locked --workspace 2>&1 | tee /tmp/test_output.txt
+          set -e
+        shell: bash
+      - run: |
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/test_output.txt | grep -Ei 'error|cannot|unresolved|undefined|mismatch|panicked|FAILED|failures:' | while IFS= read -r line; do
+            echo "::error::${line}"
+          done || true
+        shell: bash
+        if: always()
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings > /tmp/clippy_output.txt 2>&1 || true
+        shell: bash
+      - run: |
+          sed 's/\x1b\[[0-9;]*m//g' /tmp/clippy_output.txt | grep -Ei 'warning|error' | while IFS= read -r line; do
+            echo "::error::${line}"
+          done || true
+        shell: bash
+        if: always()

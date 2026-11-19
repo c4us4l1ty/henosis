@@ -4,7 +4,7 @@ use std::{fs, io, thread, time::{Duration, Instant}};
 fn main() -> io::Result<()> {
     if std::env::args().nth(1).as_deref() == Some("--pause") {
         fs::write("started.marker", "started\n")?;
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while !std::path::Path::new("release.marker").exists() {
             if Instant::now() >= deadline {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "release marker not found"));

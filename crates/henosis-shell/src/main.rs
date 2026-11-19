@@ -177,11 +177,11 @@ fn workspace() -> io::Result<()> {
                                         println!("Recorded attempt {attempt}. Running trusted command; this is not a sandbox or capability verification.");
                                         if command == "runenv" { println!("Selected environment values are visible to the child and may appear in captured output. Never pass secrets."); }
                                         let result = match henosis_evidence::run_with_env(&words[3], &words[4], expected_exit, &words[program_index], &words[program_index + 1..], &environment) {
-                                            Ok(evidence) => Event::CommandResult { proposal, attempt: Some(attempt), evidence },
+                                            Ok(evidence) => Event::CommandResult { proposal, attempt: Some(attempt), evidence: Box::new(evidence) },
                                             Err(error) => Event::ExperimentFailed { proposal, attempt, error: error.to_string() },
                                         };
                                         match henosis_crux::append(path, result.clone()) {
-                                            Ok(id) => print_event(id as usize, &result),
+                                            Ok(_id) => print_event(proposal as usize, &result),
                                             Err(error) => eprintln!("Attempt {attempt} may have run, but recording its outcome failed: {error}. Inspect the journal and project before retrying."),
                                         }
                                     },
@@ -227,7 +227,7 @@ fn workspace() -> io::Result<()> {
                     Ok(events) => {
                         let event = id.checked_sub(1).and_then(|n| usize::try_from(n).ok()).and_then(|n| events.get(n));
                         match event {
-                            Some(Event::CommandResult { evidence, .. }) => match henosis_evidence::compare_artifact(evidence) {
+                            Some(Event::CommandResult { evidence, .. }) => match henosis_evidence::compare_artifact(&evidence) {
                                 Ok(comparison) => println!("Artifact comparison for result {id}: {}\n  Recorded SHA-256: {}\n  Current SHA-256: {}\nNot proof of authorship, correctness, or capability.", if comparison.matches { "MATCH" } else { "DIFFERENT" }, comparison.recorded, comparison.current),
                                 Err(error) => eprintln!("Could not compare artifact: {error}"),
                             },
