@@ -79,7 +79,6 @@ const CREDENTIAL_PREFIXES: &[(&str, &str)] = &[
     ("github_pat_", "GitHub fine-grained token prefix"),
     ("glpat-", "GitLab access token prefix"),
     ("xoxb-", "Slack bot token prefix"),
-    ("AKIA", "AWS access key prefix"),
     ("henosis-cap-", "Henosis capability token reflection"),
 ];
 

@@ -46,9 +46,64 @@ Signatures alone do not establish human authorship or verified capability.
 **Security limitation:** this is a process launcher, not a jail. A child can
 still read accessible files, inspect processes, and use the network. Do not run
 untrusted software with it or assume it protects secrets. There is no secure vault,
-proxy, PID attestation, DLP, cleanroom, desktop UI, or capability verification
+proxy, PID attestation, DLP, cleanroom, or capability verification
 yet. No performance or isolation claims have been validated. These remain future
 work, not features implied by the crate names or vision documents.
+
+## Native desktop app (Rust)
+
+The experimental `henosis-desktop` app uses **egui/eframe**, not a browser or
+Python. It connects to one persistent `henosis-shell` process so launched
+children and session state remain in the existing Rust supervisor.
+
+```sh
+cargo build --locked -p henosis-shell -p henosis-desktop
+cargo run --locked -p henosis-desktop
+# Or run target/debug/henosis-desktop directly (.exe on Windows).
+```
+
+A graphical desktop/display and the usual native graphics libraries are required.
+On Debian/Ubuntu, install `build-essential pkg-config libxkbcommon-dev
+libxkbcommon-x11-0 libgl1-mesa-dev` before building. Windows and macOS use their native windows;
+Linux supports X11/Wayland. Headless servers cannot show the app.
+
+The **Desktop** GitHub Actions workflow compiles on Linux, macOS, and Windows,
+checks desktop formatting/lints/tests, tests the persistent Rust connection, and
+smoke-tests a Linux window under Xvfb. Its `henosis-desktop-<OS>` artifacts contain
+both debug binaries: extract them together and launch `henosis-desktop`.
+These are development builds, not signed installers or standalone app bundles;
+Linux still needs the native runtime libraries above.
+
+1. Open **Connection** and click **Start workspace**. The backend defaults to
+   `henosis-shell` beside the GUI binary; edit the executable path if installed
+   elsewhere. Only choose a trusted Henosis binary.
+2. **Processes** launches an absolute executable path with optional quoted
+   arguments, lists child IDs, and stops a child (or a Unix process group). On Unix, GUI
+   launches use the new `launch-group` command to create a separate process group;
+   CLI `launch` retains its direct-child behavior.
+3. **Crux journal** provides forms to propose, observe, assess, rank, inspect,
+   close/reopen, and search journal entries. **Worldline** provides inspection,
+   initialization, and branch/tag/merge actions. Relative file paths resolve
+   against the working directory shown in Connection, not the binary directory.
+   Existing journal/DAG format validation and locking remain in the Rust backend.
+4. **Console** exposes the remaining CLI commands; **Command reference** shows
+   their syntax. This is not an OS terminal: terminal control sequences are
+   displayed as text. Child programs have no interactive input.
+
+Results and validation errors appear in **Workspace output** (bounded to roughly
+200 KB; older output is discarded). Stdout/stderr are interleaved and may arrive
+out of order. Output is not a structured process table or a durable log. The UI
+saves neither settings nor console history. Do not enter secrets, credentials,
+passwords, or mnemonics in its visible console; secret-entry UI is not implemented.
+Journal records are plaintext and are not automatically verified capabilities.
+
+Closing the window requests EOF after queued commands and waits for the backend
+to stop/reap direct children. A long-running command can delay closing. The GUI
+never force-kills the supervisor; descendants can still outlive it. An unsuccessful
+backend exit keeps the window open so cleanup diagnostics can be inspected. Crashes or
+forcibly terminating the GUI are not graceful shutdown. Like the CLI, **this is
+not a sandbox** and does not isolate files, processes, credentials, or network
+access. The GUI does not change the launcher's empty-child-environment policy.
 
 ## Experimental crux journal
 

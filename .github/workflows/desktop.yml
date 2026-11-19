@@ -1,0 +1,77 @@
+name: Desktop
+on: [push, pull_request]
+permissions:
+  contents: read
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dev xvfb
+      - run: cargo fmt -p henosis-desktop -- --check
+      - run: rustfmt --check --edition 2021 crates/henosis-shell/tests/process_groups.rs
+      - name: Compile workspace tests
+        shell: bash
+        run: bash .github/scripts/check-rust.sh test --locked --workspace --no-run
+      - name: Process group regression tests
+        shell: bash
+        run: |
+          bash .github/scripts/check-rust.sh test --locked -p henosis-jail
+          bash .github/scripts/check-rust.sh test --locked -p henosis-shell --test process_groups
+      - name: Desktop unit tests
+        shell: bash
+        run: bash .github/scripts/check-rust.sh test --locked -p henosis-desktop
+      - name: Desktop clippy
+        shell: bash
+        run: bash .github/scripts/check-rust.sh clippy --locked -p henosis-desktop --all-targets -- -D warnings
+      - name: Build native application and backend
+        shell: bash
+        run: bash .github/scripts/check-rust.sh build --locked -p henosis-desktop -p henosis-shell
+      - name: Persistent backend integration test
+        shell: bash
+        run: |
+          backend="$PWD/target/debug/henosis-shell"
+          if [ "$RUNNER_OS" = Windows ]; then backend="$backend.exe"; fi
+          export HENOSIS_TEST_BACKEND="$backend"
+          bash .github/scripts/check-rust.sh test --locked -p henosis-desktop -- --ignored
+      - name: Linux window smoke test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set +e
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a timeout 10s target/debug/henosis-desktop > window.log 2>&1
+          result=$?
+          cat window.log
+          if [ "$result" -ne 124 ]; then
+            python3 - <<'PYCODE'
+          from pathlib import Path
+          text = Path("window.log").read_text(errors="replace")
+          print("::error::" + text.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"))
+          PYCODE
+            exit 1
+          fi
+      - name: Downloadable native binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: henosis-desktop-${{ runner.os }}
+          path: |
+            target/debug/henosis-desktop
+            target/debug/henosis-shell
+            target/debug/henosis-desktop.exe
+            target/debug/henosis-shell.exe
+          if-no-files-found: error

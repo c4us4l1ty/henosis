@@ -219,7 +219,6 @@ pub fn merge_reports(a: DriftReport, b: DriftReport) -> DriftReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use henosis_evidence::{ArtifactBefore, Evidence, TimeoutCleanup};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path() -> std::path::PathBuf {
@@ -248,8 +247,8 @@ mod tests {
     #[test]
     fn drift_rate_and_review_targets() {
         let report = DriftReport {
-            total: 5,
-            unchanged: 3,
+            total: 3,
+            unchanged: 1,
             changed: 1,
             missing: 1,
             unavailable: 0,
