@@ -9,6 +9,7 @@ members = [
     "crates/henosis-proxy",
     "crates/henosis-synthesis",
     "crates/henosis-shell",
+    "crates/henosis-desktop",
     "crates/henosis-vault",
 ]
 resolver = "2"
