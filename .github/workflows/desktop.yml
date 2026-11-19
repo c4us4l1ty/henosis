@@ -1,7 +1,7 @@
 name: Desktop
 on: [push, pull_request]
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: true
@@ -22,18 +22,8 @@ jobs:
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dev xvfb
-      - name: Format bug fixes with CI Rust toolchain
-        if: runner.os == 'Linux' && github.event_name == 'push'
-        run: |
-          cargo fmt -p henosis-desktop -p henosis-jail
-          rustfmt --edition 2021 crates/henosis-shell/tests/process_groups.rs
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/henosis-desktop/src crates/henosis-jail/src/lib.rs crates/henosis-shell/tests/process_groups.rs
-          git diff --cached --quiet || git commit -m "Format desktop bug fixes with CI toolchain"
-          git push origin HEAD:${{ github.ref_name }}
-      - if: runner.os == 'Linux'
-        run: cargo fmt -p henosis-desktop -- --check
+      - run: cargo fmt -p henosis-desktop -p henosis-jail -- --check
+      - run: rustfmt --check --edition 2021 crates/henosis-shell/tests/process_groups.rs
       - name: Compile workspace tests
         shell: bash
         run: bash .github/scripts/check-rust.sh test --locked --workspace --no-run
