@@ -9,30 +9,53 @@ use std::time::Duration;
 
 const OUTPUT_LIMIT: usize = 200_000;
 const JOURNAL_ACTIONS: &[(&str, &[&str])] = &[
-    ("journal", &[]), ("propose", &["Goal", "Hypothesis", "Test"]),
+    ("journal", &[]),
+    ("propose", &["Goal", "Hypothesis", "Test"]),
     ("observe", &["Proposal ID", "Outcome"]),
-    ("assess", &["Proposal ID", "Information (1–5)", "Failure concern (1–5)", "Cost (1–5)"]),
-    ("rank", &[]), ("show", &["Proposal ID"]),
-    ("close", &["Proposal ID", "Reason"]), ("reopen", &["Proposal ID", "Reason"]),
-    ("pending", &[]), ("stats", &[]), ("search", &["Pattern"]),
+    (
+        "assess",
+        &[
+            "Proposal ID",
+            "Information (1–5)",
+            "Failure concern (1–5)",
+            "Cost (1–5)",
+        ],
+    ),
+    ("rank", &[]),
+    ("show", &["Proposal ID"]),
+    ("close", &["Proposal ID", "Reason"]),
+    ("reopen", &["Proposal ID", "Reason"]),
+    ("pending", &[]),
+    ("stats", &[]),
+    ("search", &["Pattern"]),
 ];
 const DAG_ACTIONS: &[(&str, &[&str])] = &[
-    ("state", &[]), ("init", &[]), ("log", &[]), ("verifyall", &[]),
-    ("branch", &["Branch name"]), ("checkout", &["Branch name"]),
-    ("merge", &["Source branch", "Rationale"]), ("tag", &["Tag name", "Commit ID"]),
+    ("state", &[]),
+    ("init", &[]),
+    ("log", &[]),
+    ("verifyall", &[]),
+    ("branch", &["Branch name"]),
+    ("checkout", &["Branch name"]),
+    ("merge", &["Source branch", "Rationale"]),
+    ("tag", &["Tag name", "Commit ID"]),
 ];
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Henosis — local workspace").with_inner_size([1120.0, 800.0])
+            .with_title("Henosis — local workspace")
+            .with_inner_size([1120.0, 800.0])
             .with_min_inner_size([760.0, 600.0]),
         ..Default::default()
     };
-    eframe::run_native("Henosis", options, Box::new(|cc| {
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
-        Ok(Box::new(Desktop::default()))
-    }))
+    eframe::run_native(
+        "Henosis",
+        options,
+        Box::new(|cc| {
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            Ok(Box::new(Desktop::default()))
+        }),
+    )
 }
 
 struct Desktop {
@@ -55,16 +78,33 @@ struct Desktop {
 
 impl Default for Desktop {
     fn default() -> Self {
-        let binary = if cfg!(windows) { "henosis-shell.exe" } else { "henosis-shell" };
-        let sibling = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join(binary)));
+        let binary = if cfg!(windows) {
+            "henosis-shell.exe"
+        } else {
+            "henosis-shell"
+        };
+        let sibling = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.join(binary)));
         Self {
             backend: None,
-            backend_path: sibling.unwrap_or_else(|| PathBuf::from(binary)).display().to_string(),
-            page: 0, action: 0, fields: vec![String::new(); 5],
-            journal: "crux.jsonl".into(), worldline: "worldline.json".into(),
-            program: String::new(), arguments: String::new(), process_id: String::new(),
-            console: String::new(), output: String::new(), error: String::new(),
-            closing: false, exited: false,
+            backend_path: sibling
+                .unwrap_or_else(|| PathBuf::from(binary))
+                .display()
+                .to_string(),
+            page: 0,
+            action: 0,
+            fields: vec![String::new(); 5],
+            journal: "crux.jsonl".into(),
+            worldline: "worldline.json".into(),
+            program: String::new(),
+            arguments: String::new(),
+            process_id: String::new(),
+            console: String::new(),
+            output: String::new(),
+            error: String::new(),
+            closing: false,
+            exited: false,
         }
     }
 }
@@ -73,12 +113,17 @@ impl Desktop {
     fn append(&mut self, text: &str) {
         // Make terminal controls visible; this is a text view, not a terminal.
         for c in text.chars() {
-            if c.is_control() && c != '\n' && c != '\t' { self.output.extend(c.escape_default()); }
-            else { self.output.push(c); }
+            if c.is_control() && c != '\n' && c != '\t' {
+                self.output.extend(c.escape_default());
+            } else {
+                self.output.push(c);
+            }
         }
         if self.output.len() > OUTPUT_LIMIT {
             let mut cut = self.output.len() - OUTPUT_LIMIT;
-            while !self.output.is_char_boundary(cut) { cut += 1; }
+            while !self.output.is_char_boundary(cut) {
+                cut += 1;
+            }
             self.output.drain(..cut);
         }
     }
@@ -86,9 +131,14 @@ impl Desktop {
     fn send(&mut self, result: Result<String, String>) {
         self.error.clear();
         let result = result.and_then(|line| {
-            self.backend.as_ref().ok_or_else(|| "Start the workspace first.".to_string())?.send(line)
+            self.backend
+                .as_ref()
+                .ok_or_else(|| "Start the workspace first.".to_string())?
+                .send(line)
         });
-        if let Err(error) = result { self.error = error; }
+        if let Err(error) = result {
+            self.error = error;
+        }
     }
 
     fn process_form(&mut self, ui: &mut egui::Ui) {
@@ -101,18 +151,26 @@ impl Desktop {
                 let result = if !PathBuf::from(&self.program).is_absolute() {
                     Err("Choose an absolute executable path.".into())
                 } else {
-                    shell_words::split(&self.arguments).map_err(|e| e.to_string()).and_then(|args| {
-                        let mut words = vec!["launch", self.program.as_str()];
-                        words.extend(args.iter().map(String::as_str));
-                        encode(&words)
-                    })
+                    shell_words::split(&self.arguments)
+                        .map_err(|e| e.to_string())
+                        .and_then(|args| {
+                            let mut words = vec!["launch", self.program.as_str()];
+                            words.extend(args.iter().map(String::as_str));
+                            encode(&words)
+                        })
                 };
                 self.send(result);
             }
-            if ui.button("Refresh process list").clicked() { self.send(encode(&["list"])); }
+            if ui.button("Refresh process list").clicked() {
+                self.send(encode(&["list"]));
+            }
         });
         ui.separator();
-        field(ui, "Henosis process ID (from the list, not the OS PID)", &mut self.process_id);
+        field(
+            ui,
+            "Henosis process ID (from the list, not the OS PID)",
+            &mut self.process_id,
+        );
         ui.horizontal(|ui| {
             if ui.button("Stop direct child").clicked() {
                 self.send(encode(&["stop", &self.process_id]));
@@ -129,22 +187,45 @@ impl Desktop {
         ui.heading(if dag { "Worldline" } else { "Crux journal" });
         ui.label(if dag { "Inspect and manage the existing Merkle-DAG workspace." }
             else { "Local plaintext records. Proposals and observations are user assertions, not verified capability." });
-        field(ui, "File path (relative to the desktop's working directory or absolute)",
-            if dag { &mut self.worldline } else { &mut self.journal });
+        field(
+            ui,
+            "File path (relative to the desktop's working directory or absolute)",
+            if dag {
+                &mut self.worldline
+            } else {
+                &mut self.journal
+            },
+        );
         let actions = if dag { DAG_ACTIONS } else { JOURNAL_ACTIONS };
         let previous = self.action;
-        egui::ComboBox::from_label("Action").selected_text(actions[self.action].0).show_ui(ui, |ui| {
-            for (i, (name, _)) in actions.iter().enumerate() { ui.selectable_value(&mut self.action, i, *name); }
-        });
-        if previous != self.action { self.fields.iter_mut().for_each(String::clear); }
+        egui::ComboBox::from_label("Action")
+            .selected_text(actions[self.action].0)
+            .show_ui(ui, |ui| {
+                for (i, (name, _)) in actions.iter().enumerate() {
+                    ui.selectable_value(&mut self.action, i, *name);
+                }
+            });
+        if previous != self.action {
+            self.fields.iter_mut().for_each(String::clear);
+        }
         let (command, labels) = actions[self.action];
-        for (value, label) in self.fields.iter_mut().zip(labels.iter()) { field(ui, label, value); }
+        for (value, label) in self.fields.iter_mut().zip(labels.iter()) {
+            field(ui, label, value);
+        }
         if ui.button(format!("Run {command}")).clicked() {
             let path = if dag { &self.worldline } else { &self.journal };
-            let result = if path.trim().is_empty() || self.fields[..labels.len()].iter().any(|s| s.trim().is_empty()) {
+            let result = if path.trim().is_empty()
+                || self.fields[..labels.len()]
+                    .iter()
+                    .any(|s| s.trim().is_empty())
+            {
                 Err("Fill in all fields before submitting.".into())
             } else {
-                let mut words = if dag { vec!["dag", command, path.as_str()] } else { vec![command, path.as_str()] };
+                let mut words = if dag {
+                    vec!["dag", command, path.as_str()]
+                } else {
+                    vec![command, path.as_str()]
+                };
                 words.extend(self.fields[..labels.len()].iter().map(String::as_str));
                 encode(&words)
             };
@@ -163,8 +244,14 @@ fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
 impl eframe::App for Desktop {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(Duration::from_millis(100));
-        let chunks: Vec<_> = self.backend.as_ref().map(|b| b.output.try_iter().take(64).collect()).unwrap_or_default();
-        for chunk in chunks { self.append(&chunk); }
+        let chunks: Vec<_> = self
+            .backend
+            .as_ref()
+            .map(|b| b.output.try_iter().take(64).collect())
+            .unwrap_or_default();
+        for chunk in chunks {
+            self.append(&chunk);
+        }
         if let Some(backend) = &mut self.backend {
             match backend.child.try_wait() {
                 Ok(Some(status)) if !self.exited => {
@@ -178,9 +265,13 @@ impl eframe::App for Desktop {
         if ctx.input(|i| i.viewport().close_requested()) && self.backend.is_some() && !self.exited {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.closing = true;
-            if let Some(backend) = &self.backend { backend.close(); }
+            if let Some(backend) = &self.backend {
+                backend.close();
+            }
         }
-        if self.closing && self.exited { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
+        if self.closing && self.exited {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
 
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(8.0);
@@ -195,29 +286,53 @@ impl eframe::App for Desktop {
             ui.label(egui::RichText::new("Not a sandbox. Children can access files and the network. Run only trusted software.").color(egui::Color32::from_rgb(235, 186, 105)));
             ui.add_space(8.0);
         });
-        egui::SidePanel::left("navigation").exact_width(160.0).show(ctx, |ui| {
-            ui.add_space(12.0);
-            for (i, title) in ["Processes", "Crux journal", "Worldline", "Console", "Connection"].iter().enumerate() {
-                if ui.selectable_label(self.page == i, *title).clicked() {
-                    self.page = i; self.action = 0; self.fields.iter_mut().for_each(String::clear);
+        egui::SidePanel::left("navigation")
+            .exact_width(160.0)
+            .show(ctx, |ui| {
+                ui.add_space(12.0);
+                for (i, title) in [
+                    "Processes",
+                    "Crux journal",
+                    "Worldline",
+                    "Console",
+                    "Connection",
+                ]
+                .iter()
+                .enumerate()
+                {
+                    if ui.selectable_label(self.page == i, *title).clicked() {
+                        self.page = i;
+                        self.action = 0;
+                        self.fields.iter_mut().for_each(String::clear);
+                    }
+                    ui.add_space(8.0);
                 }
-                ui.add_space(8.0);
-            }
-            ui.separator();
-            ui.label("Local-first • experimental");
-            ui.label("No UI state or console history is saved.");
-        });
-        egui::TopBottomPanel::bottom("output").resizable(true).default_height(280.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.strong("Workspace output");
-                ui.label("(bounded, stdout and stderr interleaved)");
-                if ui.small_button("Clear").clicked() { self.output.clear(); }
+                ui.separator();
+                ui.label("Local-first • experimental");
+                ui.label("No UI state or console history is saved.");
             });
-            egui::ScrollArea::both().stick_to_bottom(true).show(ui, |ui| {
-                ui.add(egui::TextEdit::multiline(&mut self.output).font(egui::TextStyle::Monospace)
-                    .desired_width(f32::INFINITY).interactive(false));
+        egui::TopBottomPanel::bottom("output")
+            .resizable(true)
+            .default_height(280.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.strong("Workspace output");
+                    ui.label("(bounded, stdout and stderr interleaved)");
+                    if ui.small_button("Clear").clicked() {
+                        self.output.clear();
+                    }
+                });
+                egui::ScrollArea::both()
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut self.output)
+                                .font(egui::TextStyle::Monospace)
+                                .desired_width(f32::INFINITY)
+                                .interactive(false),
+                        );
+                    });
             });
-        });
         egui::CentralPanel::default().show(ctx, |ui| {
             if !self.error.is_empty() { ui.colored_label(egui::Color32::LIGHT_RED, &self.error); ui.separator(); }
             if self.closing {
