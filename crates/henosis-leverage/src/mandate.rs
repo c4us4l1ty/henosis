@@ -92,7 +92,7 @@ pub fn detect_abandonment(
 ) -> Result<Vec<MandateReport>, String> {
     // Per-goal map: each active goal -> the capabilities its backward light-cone
     // reports as missing (i.e. load-bearing foundations for that goal).
-    let mut goal_needed_caps: BTreeMap<&String, BTreeSet<String>> = BTreeMap::new();
+    let mut goal_needed_caps: BTreeMap<&String, Vec<String>> = BTreeMap::new();
     // Union across all goals for the overall load-bearing check.
     let mut load_bearing_caps: BTreeSet<String> = BTreeSet::new();
     for goal in active_goals {
