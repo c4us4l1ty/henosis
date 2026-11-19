@@ -212,6 +212,27 @@ impl Identity {
     pub fn sign_domain_hex(&self, domain: &[u8], payload: &[u8]) -> Result<String, SignatureError> {
         Ok(hex::encode(&self.sign_domain(domain, payload)?))
     }
+
+    /// Derive a rotated signing key from the current one using HKDF with a
+    /// purpose label, producing a new `Identity` with a different public key.
+    /// The old key remains valid for verifying historical signatures; the new
+    /// key should be used for all future operations. Rotation does not delete
+    /// or invalidate the previous key.
+    pub fn rotate_key(&self, purpose: &str) -> Result<Identity, IdentityError> {
+        if purpose.is_empty() || purpose.len() > 128 || purpose.contains('\0') {
+            return Err(IdentityError::InvalidPurpose);
+        }
+        let mut info = Vec::with_capacity(IDENTITY_INFO.len() + purpose.len() + 1);
+        info.extend_from_slice(IDENTITY_INFO);
+        info.push(b'\0');
+        info.extend_from_slice(purpose.as_bytes());
+        let hkdf = Hkdf::<Sha256>::new(Some(SUBKEY_SALT), &self.public_key());
+        let mut key_bytes = Zeroizing::new([0u8; 32]);
+        hkdf.expand(&info, key_bytes.as_mut())
+            .map_err(|_| IdentityError::InvalidKey)?;
+        let signing_key = SigningKey::from_bytes(&*key_bytes);
+        Ok(Self { signing_key })
+    }
 }
 
 /// Strictly verify an un-prefixed Ed25519 signature against `public_key`.

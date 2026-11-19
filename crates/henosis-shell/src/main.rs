@@ -2,11 +2,17 @@
 
 use henosis_jail::{LauncherSpec, Supervisor};
 use henosis_crux::Event;
+use henosis_dag::{
+    AssistanceProvenance, EntityKind, EpistemicStatus, FailureRecord, Node, ProofOperator,
+    QuarantineItem, RealizationContract, VerificationEntry, Worldline, WorldlineOp,
+};
+use henosis_vault::Identity;
+use henosis_akashi::{build_bundle, load_bundle, save_bundle, BundleInput};
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  runenv FILE ID PROJECT ARTIFACT EXIT KEY[,KEY...] PROGRAM [ARGS...]\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  stop-group ID                        Stop a child and its process group (Unix)\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  runenv FILE ID PROJECT ARTIFACT EXIT KEY[,KEY...] PROGRAM [ARGS...]\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  drift FILE                           Report artifact drift across journal command results\n  stats FILE                           Show journal event statistics\n  search FILE PATTERN                  Search journal events by text pattern\n  export FILE FORMAT                   Export journal to json or csv\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  dag init FILE                        Create a new Worldline Merkle-DAG file\n  dag node FILE ID KIND TITLE DOMAIN SUMMARY STATUS PROVENANCE  Upsert a World Model node\n  dag contract FILE ID TITLE OUTPUT VERIFICATION COST [PREREQ...]  Upsert a realization contract\n  dag verify FILE NODE OPERATOR PROVENANCE EVIDENCE_SHA BLACKOUT SUMMARY  Record a verification\n  dag fail FILE ID TARGET ASSUMPTION TRIGGER PREDICTED OBSERVED [EVIDENCE_SHA]  Record a failure atlas entry\n  dag expose FILE ID SOURCE TOPIC NOTES [PROMPT_SHA]  Quarantine an exposure\n  dag resolve FILE EXPOSURE_ID NODE_ID  Resolve a quarantined exposure\n  dag tag FILE TAGNAME COMMITID        Tag a commit\n  dag log FILE [BRANCH]                Show commit log\n  dag state FILE                       Materialize head World Model state\n  dag verifyall FILE [REQUIRE_SIGS]    Verify every commit\n  dag branch FILE NAME [FROM_COMMIT]   Create a branch\n  dag checkout FILE BRANCH             Switch branches\n  dag merge FILE SOURCE_BRANCH RATIONALE  Merge a branch into head\n  dag key PHRASE [PASSPHRASE]             Recover an Ed25519 identity into this session\n  dag whoami                              Show the session key fingerprint\n  akashi bundle FILE NODE OUTPUT.hcap [SIGN true/false]  Build and sign a capability bundle\n  akashi verify-bundle FILE.hcap [STRICT true/false]     Load and verify a capability bundle\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 // User-controlled text must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
@@ -87,6 +93,9 @@ fn main() -> ExitCode {
 fn workspace() -> io::Result<()> {
     println!("Henosis — process workspace\nNot a sandbox. Children get an empty environment.\nType help for commands.");
     let mut supervisor = Supervisor::new();
+    // Session-scoped signing key, recovered from a mnemonic with `dag key`.
+    // It lives only for this REPL session and is never written to disk.
+    let mut session_key: Option<Identity> = None;
     loop {
         print!("henosis> ");
         io::stdout().flush()?;
@@ -238,6 +247,415 @@ fn workspace() -> io::Result<()> {
                 },
                 Err(_) => eprintln!("Result ID must be a number."),
             },
+            "dag" if words.len() >= 2 => match words[1].as_str() {
+                "init" if words.len() == 3 => match Worldline::create(Path::new(&words[2])) {
+                    Ok(_) => println!("Created Worldline {}.", words[2]),
+                    Err(error) => eprintln!("Could not create worldline: {error}"),
+                },
+                "node" if words.len() == 10 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let kind = match EntityKind::parse(words[4].as_str()) {
+                        Ok(k) => k,
+                        Err(error) => { eprintln!("{error}"); continue; }
+                    };
+                    let status = match EpistemicStatus::parse(words[8].as_str()) {
+                        Ok(s) => s,
+                        Err(error) => { eprintln!("{error}"); continue; }
+                    };
+                    let provenance = match AssistanceProvenance::parse(words[9].as_str()) {
+                        Ok(p) => p,
+                        Err(error) => { eprintln!("{error}"); continue; }
+                    };
+                    let node = Node {
+                        id: words[3].clone(),
+                        kind,
+                        title: words[5].clone(),
+                        domain: words[6].clone(),
+                        summary: words[7].clone(),
+                        status,
+                        provenance,
+                        evidence_sha256: vec![],
+                        proof_operators: vec![],
+                    };
+                    match wl.commit(
+                        format!("Shell: upsert node {}", words[3]),
+                        vec![WorldlineOp::UpsertNode { node: Box::new(node) }],
+                        session_key.as_ref(),
+                    ) {
+                        Ok(id) => match wl.save(path) {
+                            Ok(()) => println!("Committed node {} as commit {}.", words[3], id),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not commit node: {error}"),
+                    }
+                },
+                "contract" if words.len() >= 8 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let cost: u32 = match words[7].parse() {
+                        Ok(c) => c,
+                        Err(error) => { eprintln!("Invalid cost units: {error}"); continue; }
+                    };
+                    let prerequisites: Vec<String> = words[8..].iter().cloned().collect();
+                    let contract = RealizationContract {
+                        id: words[3].clone(),
+                        title: words[4].clone(),
+                        prerequisites,
+                        assumptions: vec![],
+                        resources: vec![],
+                        output: words[5].clone(),
+                        verification: words[6].clone(),
+                        failure_boundary: vec![],
+                        status: EpistemicStatus::Hypothesized,
+                        cost_units: cost,
+                    };
+                    match wl.commit(
+                        format!("Shell: upsert contract {}", words[3]),
+                        vec![WorldlineOp::UpsertContract { contract: Box::new(contract) }],
+                        session_key.as_ref(),
+                    ) {
+                        Ok(id) => match wl.save(path) {
+                            Ok(()) => println!("Committed contract {} as commit {}.", words[3], id),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not commit contract: {error}"),
+                    }
+                },
+                "verify" if words.len() == 9 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let operator = match ProofOperator::parse(words[4].as_str()) {
+                        Ok(o) => o,
+                        Err(error) => { eprintln!("{error}"); continue; }
+                    };
+                    let provenance = match AssistanceProvenance::parse(words[5].as_str()) {
+                        Ok(p) => p,
+                        Err(error) => { eprintln!("{error}"); continue; }
+                    };
+                    let blackout = match words[7].as_str() {
+                        "true" => true,
+                        "false" => false,
+                        _ => { eprintln!("blackout must be 'true' or 'false'."); continue; }
+                    };
+                    let entry = VerificationEntry {
+                        node_id: words[3].clone(),
+                        operator,
+                        provenance,
+                        evidence_sha256: words[6].clone(),
+                        proxy_blackout_verified: blackout,
+                        summary: words[8].clone(),
+                    };
+                    match wl.commit(
+                        format!("Shell: verify node {}", words[3]),
+                        vec![WorldlineOp::RecordVerification { entry: Box::new(entry) }],
+                        session_key.as_ref(),
+                    ) {
+                        Ok(id) => match wl.save(path) {
+                            Ok(()) => println!("Recorded verification for {} as commit {}.", words[3], id),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not commit verification: {error}"),
+                    }
+                },
+                "fail" if words.len() >= 9 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let evidence_sha256 = if words.len() >= 10 { Some(words[9].clone()) } else { None };
+                    let failure = FailureRecord {
+                        id: words[3].clone(),
+                        target_id: words[4].clone(),
+                        broken_assumption: words[5].clone(),
+                        trigger: words[6].clone(),
+                        predicted: words[7].clone(),
+                        observed: words[8].clone(),
+                        evidence_sha256,
+                    };
+                    match wl.commit(
+                        format!("Shell: record failure {}", words[3]),
+                        vec![WorldlineOp::RecordFailure { failure: Box::new(failure) }],
+                        session_key.as_ref(),
+                    ) {
+                        Ok(id) => match wl.save(path) {
+                            Ok(()) => println!("Recorded failure {} as commit {}.", words[3], id),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not commit failure: {error}"),
+                    }
+                },
+                "expose" if words.len() >= 7 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let prompt_sha256 = if words.len() >= 8 { Some(words[7].clone()) } else { None };
+                    let item = QuarantineItem {
+                        id: words[3].clone(),
+                        source: words[4].clone(),
+                        topic: words[5].clone(),
+                        prompt_sha256,
+                        notes: words[6].clone(),
+                        resolved_by_node: None,
+                    };
+                    match wl.commit(
+                        format!("Shell: enqueue exposure {}", words[3]),
+                        vec![WorldlineOp::EnqueueExposure { item: Box::new(item) }],
+                        session_key.as_ref(),
+                    ) {
+                        Ok(id) => match wl.save(path) {
+                            Ok(()) => println!("Enqueued exposure {} as commit {}.", words[3], id),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not commit exposure: {error}"),
+                    }
+                },
+                "resolve" if words.len() == 5 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    match wl.commit(
+                        format!("Shell: resolve exposure {}", words[3]),
+                        vec![WorldlineOp::ResolveExposure { exposure_id: words[3].clone(), resolved_by_node: words[4].clone() }],
+                        session_key.as_ref(),
+                    ) {
+                        Ok(id) => match wl.save(path) {
+                            Ok(()) => println!("Resolved exposure {} as commit {}.", words[3], id),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not commit resolution: {error}"),
+                    }
+                },
+                "tag" if words.len() == 5 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    match wl.tag(words[3].as_str(), words[4].as_str()) {
+                        Ok(()) => match wl.save(path) {
+                            Ok(()) => println!("Tagged commit {} as {}.", words[4], words[3]),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not tag: {error}"),
+                    }
+                },
+                "log" if words.len() == 3 || words.len() == 4 => {
+                    let path = Path::new(&words[2]);
+                    let wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let branch = if words.len() == 4 { Some(words[3].as_str()) } else { None };
+                    match wl.log(branch) {
+                        Ok(commits) => {
+                            if commits.is_empty() { println!("No commits."); }
+                            for commit in commits {
+                                let signer = if commit.signature_hex.is_some() { "signed" } else { "unsigned" };
+                                println!("{}  seq={}  {}  {}", commit.id, commit.seq, signer, commit.message);
+                                for op in &commit.ops {
+                                    println!("    op: {:?}", op);
+                                }
+                            }
+                        },
+                        Err(error) => eprintln!("Could not read log: {error}"),
+                    }
+                },
+                "state" if words.len() == 3 => {
+                    let path = Path::new(&words[2]);
+                    let wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    match wl.materialize_head() {
+                        Ok(state) => {
+                            println!("World state: {} nodes, {} contracts, {} failures, {} verifications, {} unresolved exposures",
+                                state.nodes.len(), state.contracts.len(), state.failures.len(),
+                                state.verifications.len(), state.unresolved_quarantine().len());
+                            println!("  Unassisted capabilities (H): {}", state.unassisted_capabilities().len());
+                            for id in state.unassisted_capabilities() {
+                                println!("    H: {id}");
+                            }
+                            println!("  Assisted verified: {}", state.assisted_verified_nodes().len());
+                            for id in state.assisted_verified_nodes() {
+                                println!("    A: {id}");
+                            }
+                        },
+                        Err(error) => eprintln!("Could not materialize state: {error}"),
+                    }
+                },
+                "verifyall" if words.len() == 3 || words.len() == 4 => {
+                    let path = Path::new(&words[2]);
+                    let wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let require_sigs = if words.len() == 4 { words[3] == "true" } else { false };
+                    match wl.verify_all(require_sigs) {
+                        Ok(count) => println!("Verified {} signed commits (require_signatures={require_sigs}).", count),
+                        Err(error) => eprintln!("Verification failed: {error}"),
+                    }
+                },
+                "branch" if words.len() == 4 || words.len() == 5 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let from = if words.len() == 5 { Some(words[4].as_str()) } else { None };
+                    match wl.create_branch(words[3].as_str(), from) {
+                        Ok(_) => match wl.save(path) {
+                            Ok(()) => println!("Created branch {}.", words[3]),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not create branch: {error}"),
+                    }
+                },
+                "checkout" if words.len() == 4 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    match wl.checkout(words[3].as_str()) {
+                        Ok(()) => match wl.save(path) {
+                            Ok(()) => println!("Checked out branch {}.", words[3]),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not checkout: {error}"),
+                    }
+                },
+                "merge" if words.len() >= 5 => {
+                    let path = Path::new(&words[2]);
+                    let mut wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let rationale = words[4..].join(" ");
+                    match wl.merge(words[3].as_str(), rationale, session_key.as_ref()) {
+                        Ok(id) => match wl.save(path) {
+                            Ok(()) => println!("Merged {} as commit {}.", words[3], id),
+                            Err(error) => eprintln!("Could not save worldline: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not merge: {error}"),
+                    }
+                },
+                "key" if words.len() == 3 || words.len() == 4 => {
+                    let passphrase = if words.len() == 4 { words[3].as_str() } else { "" };
+                    match Identity::recover(words[2].as_str(), passphrase) {
+                        Ok(identity) => {
+                            session_key = Some(identity);
+                            let key = session_key.as_ref().unwrap();
+                            println!("Session key loaded: fingerprint={} pubkey={}", key.fingerprint(), key.public_key_hex());
+                        },
+                        Err(error) => eprintln!("Could not recover identity: {error}"),
+                    }
+                },
+                "whoami" if words.len() == 2 => {
+                    match &session_key {
+                        Some(identity) => println!("Session key: fingerprint={} pubkey={}", identity.fingerprint(), identity.public_key_hex()),
+                        None => println!("No session key. Use: dag key PHRASE [PASSPHRASE]"),
+                    }
+                },
+                _ => eprintln!("Unknown dag subcommand. Try: init, node, contract, verify, fail, expose, resolve, tag, log, state, verifyall, branch, checkout, merge, key, whoami."),
+            },
+            "akashi" if words.len() >= 2 => match words[1].as_str() {
+                "bundle" if words.len() == 5 || words.len() == 6 => {
+                    let path = Path::new(&words[2]);
+                    let node_id = words[3].as_str();
+                    let output = Path::new(&words[4]);
+                    let sign = if words.len() == 6 { words[5] == "true" } else { false };
+                    let wl = match Worldline::load(path) {
+                        Ok(wl) => wl,
+                        Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
+                    };
+                    let state = match wl.materialize_head() {
+                        Ok(s) => s,
+                        Err(error) => { eprintln!("Could not materialize state: {error}"); continue; }
+                    };
+                    let capability = match state.nodes.get(node_id) {
+                        Some(n) => n.clone(),
+                        None => { eprintln!("No node '{node_id}' in head state."); continue; }
+                    };
+                    let contract = state.contracts.values()
+                        .find(|c| c.output == node_id)
+                        .cloned();
+                    let verifications: Vec<VerificationEntry> = state.verifications.iter()
+                        .filter(|v| v.node_id == node_id)
+                        .cloned()
+                        .collect();
+                    let failures: Vec<FailureRecord> = state.failures.values()
+                        .filter(|f| f.target_id == node_id)
+                        .cloned()
+                        .collect();
+                    let input = BundleInput {
+                        capability,
+                        contract,
+                        verifications,
+                        failures,
+                        perturbation_report: None,
+                        blackout_receipt: None,
+                        disclosed_capabilities: [node_id.to_owned()].into_iter().collect(),
+                        scope_limits: "Shell-built bundle from head state; independent replication required before trusting unverified assumptions.".to_owned(),
+                    };
+                    let signer = session_key.as_ref().filter(|_| sign);
+                    match build_bundle(input, signer) {
+                        Ok(bundle) => match save_bundle(output, &bundle) {
+                            Ok(()) => println!("Bundle {} saved to {} (signed={}).", bundle.bundle_id, output.display(), signer.is_some()),
+                            Err(error) => eprintln!("Could not save bundle: {error}"),
+                        },
+                        Err(error) => eprintln!("Could not build bundle: {error}"),
+                    }
+                },
+                "verify-bundle" if words.len() == 3 || words.len() == 4 => {
+                    let strict = if words.len() == 4 { words[3] == "true" } else { false };
+                    match load_bundle(Path::new(&words[2]), strict) {
+                        Ok(bundle) => {
+                            println!("Bundle {} verified (signed={}, format={}).", bundle.bundle_id, bundle.signature_hex.is_some(), bundle.format);
+                            println!("  Capability: {} ({}) status={:?} provenance={:?}", bundle.capability.id, bundle.capability.title, bundle.capability.status, bundle.capability.provenance);
+                            println!("  Verifications: {}  Failures: {}  Disclosed: {}", bundle.verifications.len(), bundle.failures.len(), bundle.disclosed_capabilities.len());
+                            if let Some(contract) = &bundle.contract {
+                                println!("  Contract: {} output={}", contract.id, contract.output);
+                            }
+                        },
+                        Err(error) => eprintln!("Could not verify bundle: {error}"),
+                    }
+                },
+                _ => eprintln!("Unknown akashi subcommand. Try: bundle, verify-bundle."),
+            },
+            "drift" if words.len() == 2 => match henosis_leverage::detect_drift(Path::new(&words[1])) {
+                Ok(report) => {
+                    println!("Artifact drift report for {}: {} command results", words[1], report.total);
+                    println!("  unchanged={} changed={} missing={} unavailable={}  drift_rate={:.1}%",
+                        report.unchanged, report.changed, report.missing, report.unavailable,
+                        report.drift_rate() * 100.0);
+                    if !report.review_targets().is_empty() {
+                        println!("  Review targets:");
+                        for entry in report.review_targets() {
+                            println!("    event {} proposal {} attempt {:?} artifact {} status={} recorded={:?} current={:?}",
+                                entry.event_position, entry.proposal_id, entry.attempt, entry.artifact,
+                                entry.status.as_str(), entry.recorded_sha256, entry.current_sha256);
+                        }
+                    } else {
+                        println!("  No drift detected — all recorded artifacts match.");
+                    }
+                },
+                Err(error) => eprintln!("Could not detect drift: {error}"),
+            },
             "review" if words.len() == 4 => match words[2].parse::<u64>() {
                 Ok(attempt) => {
                     let path = Path::new(&words[1]);
@@ -287,10 +705,105 @@ fn workspace() -> io::Result<()> {
                 },
                 Err(error) => eprintln!("Could not read journal: {error}"),
             },
+            "stats" if words.len() == 2 => match henosis_crux::read(Path::new(&words[1])) {
+                Ok(events) => {
+                    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+                    let mut command_results = 0usize;
+                    for event in &events {
+                        let kind = match event {
+                            Event::Proposed { .. } => "proposed",
+                            Event::Observed { .. } => "observed",
+                            Event::Assessed { .. } => "assessed",
+                            Event::StatusChanged { .. } => "status_changed",
+                            Event::ExperimentStarted { .. } => "experiment_started",
+                            Event::ExperimentFailed { .. } => "experiment_failed",
+                            Event::AttemptReviewed { .. } => "attempt_reviewed",
+                            Event::CommandResult { .. } => "command_result",
+                        };
+                        *counts.entry(kind.to_owned()).or_insert(0) += 1;
+                        if matches!(event, Event::CommandResult { .. }) {
+                            command_results += 1;
+                        }
+                    }
+                    println!("Journal stats for {}: {} total events", words[1], events.len());
+                    for (kind, count) in &counts {
+                        println!("  {kind}: {count}");
+                    }
+                    if command_results > 0 {
+                        match henosis_leverage::detect_drift(Path::new(&words[1])) {
+                            Ok(report) => {
+                                println!("  drift_rate: {:.1}%  review_targets: {}", report.drift_rate() * 100.0, report.review_targets().len());
+                            },
+                            Err(error) => eprintln!("  drift check failed: {error}"),
+                        }
+                    }
+                },
+                Err(error) => eprintln!("Could not read journal: {error}"),
+            },
+            "search" if words.len() == 3 => match henosis_crux::read(Path::new(&words[1])) {
+                Ok(events) => {
+                    let pattern = words[2].as_str();
+                    let mut found = 0;
+                    for (index, event) in events.iter().enumerate() {
+                        let text = format!("{event:?}");
+                        if text.contains(pattern) {
+                            println!("{}: {}", index + 1, terminal_text(&text));
+                            found += 1;
+                        }
+                    }
+                    if found == 0 {
+                        println!("No events matching '{pattern}'.");
+                    } else {
+                        println!("{found} event(s) matching '{pattern}'.");
+                    }
+                },
+                Err(error) => eprintln!("Could not read journal: {error}"),
+            },
+            "export" if words.len() == 3 => match words[2].as_str() {
+                "json" => match henosis_crux::read(Path::new(&words[1])) {
+                    Ok(events) => {
+                        println!("[");
+                        for (i, event) in events.iter().enumerate() {
+                            let comma = if i + 1 < events.len() { "," } else { "" };
+                            println!("  {}{comma}", format!("{event:?}").replace('\"', "\\\""));
+                        }
+                        println!("]");
+                    },
+                    Err(error) => eprintln!("Could not read journal: {error}"),
+                },
+                "csv" => match henosis_crux::read(Path::new(&words[1])) {
+                    Ok(events) => {
+                        println!("position,type,details");
+                        for (index, event) in events.iter().enumerate() {
+                            let kind = match event {
+                                Event::Proposed { .. } => "proposed",
+                                Event::Observed { .. } => "observed",
+                                Event::Assessed { .. } => "assessed",
+                                Event::StatusChanged { .. } => "status_changed",
+                                Event::ExperimentStarted { .. } => "experiment_started",
+                                Event::ExperimentFailed { .. } => "experiment_failed",
+                                Event::AttemptReviewed { .. } => "attempt_reviewed",
+                                Event::CommandResult { .. } => "command_result",
+                            };
+                            let details = format!("{event:?}").replace('"', "\"\"");
+                            println!("{index},{kind},\"{details}\"");
+                        }
+                    },
+                    Err(error) => eprintln!("Could not read journal: {error}"),
+                },
+                _ => eprintln!("Export format must be 'json' or 'csv'."),
+            },
             "stop" if words.len() == 2 => match words[1].parse::<u64>() {
                 Ok(id) => match supervisor.stop(id) {
                     Ok(status) => println!("Process {id}: {status}"),
                     Err(error) => eprintln!("Could not stop process {id}: {error}"),
+                },
+                Err(_) => eprintln!("Process ID must be a number."),
+            },
+            "stop-group" if words.len() == 2 => match words[1].parse::<u64>() {
+                Ok(id) => match supervisor.stop_group(id) {
+                    Ok(status) => println!("Process group {id}: {status}"),
+                    Err(error) => eprintln!("Could not stop process group {id}: {error}"),
                 },
                 Err(_) => eprintln!("Process ID must be a number."),
             },

@@ -34,6 +34,9 @@ pub enum AlgebraicProperty {
     Distributive,
     Cancellative,
     Unital,
+    Absorptive,
+    Identity,
+    Inverse,
 }
 
 impl AlgebraicProperty {
@@ -46,6 +49,9 @@ impl AlgebraicProperty {
             "distributive" => Ok(Self::Distributive),
             "cancellative" => Ok(Self::Cancellative),
             "unital" => Ok(Self::Unital),
+            "absorptive" => Ok(Self::Absorptive),
+            "identity" => Ok(Self::Identity),
+            "inverse" => Ok(Self::Inverse),
             _ => Err(format!("unknown algebraic property '{value}'")),
         }
     }
@@ -59,6 +65,9 @@ impl AlgebraicProperty {
             Self::Distributive => "distributive",
             Self::Cancellative => "cancellative",
             Self::Unital => "unital",
+            Self::Absorptive => "absorptive",
+            Self::Identity => "identity",
+            Self::Inverse => "inverse",
         }
     }
 }
