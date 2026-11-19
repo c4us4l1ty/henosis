@@ -796,14 +796,15 @@ fn workspace() -> io::Result<()> {
                     for failure in &report.exposed_failures {
                         ops.push(WorldlineOp::RecordFailure { failure: Box::new(failure.clone()) });
                     }
-                    if !ops.is_empty() {
+                    let op_count = ops.len();
+                    if op_count > 0 {
                         match wl.commit(
-                            format!("Shell: record {} failures from perturbation suite {}", ops.len(), report.target_id),
+                            format!("Shell: record {} failures from perturbation suite {}", op_count, report.target_id),
                             ops,
                             session_key.as_ref(),
                         ) {
                             Ok(id) => match wl.save(dag_path) {
-                                Ok(()) => println!("Recorded {} failure(s) as commit {}.", ops.len(), id),
+                                Ok(()) => println!("Recorded {} failure(s) as commit {}.", op_count, id),
                                 Err(error) => eprintln!("Could not save worldline: {error}"),
                             },
                             Err(error) => eprintln!("Could not commit failures: {error}"),
