@@ -1,7 +1,10 @@
 name: Desktop
 on: [push, pull_request]
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   desktop:
     strategy:
@@ -9,6 +12,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -17,16 +21,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgl1-mesa-dev xvfb
-      - run: cargo fmt -p henosis-desktop
-      - name: Return generated lockfile and formatted Rust sources
-        if: runner.os == 'Linux' && github.event_name == 'push'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock crates/henosis-desktop/src
-          git diff --cached --quiet || git commit -m "Lock and format native desktop dependencies via CI"
-          git push origin HEAD:${{ github.ref_name }}
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dev xvfb
+      - run: cargo fmt -p henosis-desktop -- --check
       - name: Compile workspace tests
         shell: bash
         run: bash .github/scripts/check-rust.sh test --locked --workspace --no-run

@@ -64,8 +64,15 @@ cargo run --locked -p henosis-desktop
 
 A graphical desktop/display and the usual native graphics libraries are required.
 On Debian/Ubuntu, install `build-essential pkg-config libxkbcommon-dev
-libgl1-mesa-dev` before building. Windows and macOS use their native windows;
+libxkbcommon-x11-0 libgl1-mesa-dev` before building. Windows and macOS use their native windows;
 Linux supports X11/Wayland. Headless servers cannot show the app.
+
+The **Desktop** GitHub Actions workflow compiles on Linux, macOS, and Windows,
+checks desktop formatting/lints/tests, tests the persistent Rust connection, and
+smoke-tests a Linux window under Xvfb. Its `henosis-desktop-<OS>` artifacts contain
+both debug binaries: extract them together and launch `henosis-desktop`.
+These are development builds, not signed installers or standalone app bundles;
+Linux still needs the native runtime libraries above.
 
 1. Open **Connection** and click **Start workspace**. The backend defaults to
    `henosis-shell` beside the GUI binary; edit the executable path if installed
