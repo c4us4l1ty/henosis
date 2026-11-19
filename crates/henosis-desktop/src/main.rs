@@ -3,7 +3,7 @@
 
 mod backend;
 
-use backend::{encode, Backend};
+use backend::{encode, Backend, Event};
 use eframe::egui;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -111,6 +111,13 @@ impl Default for Desktop {
 }
 
 impl Desktop {
+    fn record_exit(&mut self, success: bool) {
+        if !success {
+            self.closing = false;
+            self.error = "Workspace exited unsuccessfully. Cleanup may have failed; inspect output before closing or restarting.".into();
+        }
+    }
+
     fn append(&mut self, text: &str) {
         // Make terminal controls visible; this is a text view, not a terminal.
         for c in text.chars() {
@@ -133,7 +140,7 @@ impl Desktop {
         self.error.clear();
         let result = result.and_then(|line| {
             self.backend
-                .as_ref()
+                .as_mut()
                 .ok_or_else(|| "Start the workspace first.".to_string())?
                 .send(line)
         });
@@ -155,7 +162,7 @@ impl Desktop {
                     shell_words::split(&self.arguments)
                         .map_err(|e| e.to_string())
                         .and_then(|args| {
-                            let mut words = vec!["launch", self.program.as_str()];
+                            let mut words = vec![if cfg!(unix) { "launch-group" } else { "launch" }, self.program.as_str()];
                             words.extend(args.iter().map(String::as_str));
                             encode(&words)
                         })
@@ -251,12 +258,16 @@ impl eframe::App for Desktop {
             .map(|b| b.output.try_iter().take(64).collect())
             .unwrap_or_default();
         for chunk in chunks {
-            self.append(&chunk);
+            match chunk {
+                Event::Output(text) => self.append(&text),
+                Event::Error(error) => { self.append(&format!("\nTransport error: {error}\n")); self.error = error; }
+            }
         }
         if let Some(backend) = &mut self.backend {
             match backend.child.try_wait() {
                 Ok(Some(status)) if !self.exited => {
                     self.exited = true;
+                    self.record_exit(status.success());
                     self.append(&format!("\nWorkspace exited: {status}\n"));
                 }
                 Err(error) => self.error = format!("Cannot inspect workspace: {error}"),
@@ -393,4 +404,15 @@ mod tests {
         app.append("\x1b[31m\n");
         assert!(app.output.ends_with("\\u{1b}[31m\n"));
     }
+    #[test]
+    fn failed_shutdown_keeps_window_open_for_diagnostics() {
+        let mut app = Desktop { closing: true, ..Desktop::default() };
+        app.record_exit(false);
+        assert!(!app.closing);
+        assert!(app.error.contains("Cleanup may have failed"));
+        app.closing = true;
+        app.record_exit(true);
+        assert!(app.closing);
+    }
+
 }

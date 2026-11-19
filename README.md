@@ -78,7 +78,9 @@ Linux still needs the native runtime libraries above.
    `henosis-shell` beside the GUI binary; edit the executable path if installed
    elsewhere. Only choose a trusted Henosis binary.
 2. **Processes** launches an absolute executable path with optional quoted
-   arguments, lists child IDs, and stops a child (or a Unix process group).
+   arguments, lists child IDs, and stops a child (or a Unix process group). On Unix, GUI
+   launches use the new `launch-group` command to create a separate process group;
+   CLI `launch` retains its direct-child behavior.
 3. **Crux journal** provides forms to propose, observe, assess, rank, inspect,
    close/reopen, and search journal entries. **Worldline** provides inspection,
    initialization, and branch/tag/merge actions. Relative file paths resolve
@@ -97,7 +99,8 @@ Journal records are plaintext and are not automatically verified capabilities.
 
 Closing the window requests EOF after queued commands and waits for the backend
 to stop/reap direct children. A long-running command can delay closing. The GUI
-never force-kills the supervisor; descendants can still outlive it. Crashes or
+never force-kills the supervisor; descendants can still outlive it. An unsuccessful
+backend exit keeps the window open so cleanup diagnostics can be inspected. Crashes or
 forcibly terminating the GUI are not graceful shutdown. Like the CLI, **this is
 not a sandbox** and does not isolate files, processes, credentials, or network
 access. The GUI does not change the launcher's empty-child-environment policy.

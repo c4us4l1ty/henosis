@@ -9,9 +9,15 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
+#[derive(Debug)]
+pub enum Event {
+    Output(String),
+    Error(String),
+}
+
 pub struct Backend {
     pub child: Child,
-    pub output: mpsc::Receiver<String>,
+    pub output: mpsc::Receiver<Event>,
     commands: mpsc::SyncSender<String>,
     closing: Arc<AtomicBool>,
 }
@@ -41,36 +47,9 @@ impl Backend {
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
         let (tx, output) = mpsc::sync_channel(256);
-        for mut stream in [Box::new(stdout) as Box<dyn Read + Send>, Box::new(stderr)] {
+        for (name, stream) in [("stdout", Box::new(stdout) as Box<dyn Read + Send>), ("stderr", Box::new(stderr))] {
             let tx = tx.clone();
-            thread::spawn(move || {
-                let mut buffer = [0; 4096];
-                let mut pending = Vec::new();
-                loop {
-                    match stream.read(&mut buffer) {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => pending.extend_from_slice(&buffer[..n]),
-                    }
-                    // Preserve multibyte UTF-8 characters split across reads.
-                    let valid = match std::str::from_utf8(&pending) {
-                        Ok(_) => pending.len(),
-                        Err(e) if e.error_len().is_none() => e.valid_up_to(),
-                        Err(_) => pending.len(),
-                    };
-                    if valid > 0 {
-                        if tx
-                            .send(String::from_utf8_lossy(&pending[..valid]).into_owned())
-                            .is_err()
-                        {
-                            return;
-                        }
-                        pending.drain(..valid);
-                    }
-                }
-                if !pending.is_empty() {
-                    let _ = tx.send(String::from_utf8_lossy(&pending).into_owned());
-                }
-            });
+            thread::spawn(move || read_output(stream, name, tx));
         }
         let (commands, rx) = mpsc::sync_channel::<String>(32);
         let closing = Arc::new(AtomicBool::new(false));
@@ -79,7 +58,8 @@ impl Backend {
             loop {
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(line) => {
-                        if writeln!(stdin, "{line}").is_err() {
+                        if let Err(error) = writeln!(stdin, "{line}") {
+                            let _ = tx.send(Event::Error(format!("Workspace input failed: {error}. A command may be partially written; inspect before retrying.")));
                             break;
                         }
                     }
@@ -101,12 +81,15 @@ impl Backend {
         })
     }
 
-    pub fn send(&self, line: String) -> Result<(), String> {
+    pub fn send(&mut self, line: String) -> Result<(), String> {
         if self.closing.load(Ordering::Relaxed) {
             return Err("Workspace is closing.".into());
         }
         if line.contains(['\r', '\n', '\0']) {
             return Err("Enter one command at a time.".into());
+        }
+        if self.child.try_wait().map_err(|e| format!("Cannot inspect workspace: {e}"))?.is_some() {
+            return Err("Workspace has exited. Start a new connection.".into());
         }
         self.commands
             .try_send(line)
@@ -115,6 +98,48 @@ impl Backend {
 
     pub fn close(&self) {
         self.closing.store(true, Ordering::Relaxed);
+    }
+}
+
+// Consume malformed bytes without throwing away a valid but incomplete UTF-8 tail.
+fn decode(pending: &mut Vec<u8>, eof: bool) -> String {
+    let mut text = String::new();
+    let mut consumed = 0;
+    while consumed < pending.len() {
+        match std::str::from_utf8(&pending[consumed..]) {
+            Ok(rest) => { text.push_str(rest); consumed = pending.len(); }
+            Err(error) => {
+                let valid = error.valid_up_to();
+                text.push_str(std::str::from_utf8(&pending[consumed..consumed + valid]).expect("valid prefix"));
+                consumed += valid;
+                if let Some(len) = error.error_len() {
+                    text.push('\u{fffd}'); consumed += len;
+                } else if eof {
+                    text.push('\u{fffd}'); consumed = pending.len();
+                } else { break; }
+            }
+        }
+    }
+    pending.drain(..consumed);
+    text
+}
+
+fn read_output(mut stream: Box<dyn Read + Send>, name: &str, tx: mpsc::SyncSender<Event>) {
+    let mut buffer = [0; 4096];
+    let mut pending = Vec::new();
+    loop {
+        let eof = match stream.read(&mut buffer) {
+            Ok(0) => true,
+            Ok(n) => { pending.extend_from_slice(&buffer[..n]); false }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                let _ = tx.send(Event::Error(format!("Workspace {name} read failed: {error}")));
+                true
+            }
+        };
+        let text = decode(&mut pending, eof);
+        if !text.is_empty() && tx.send(Event::Output(text)).is_err() { return; }
+        if eof { return; }
     }
 }
 
@@ -158,7 +183,7 @@ mod tests {
         let mut output = String::new();
         loop {
             for chunk in backend.output.try_iter() {
-                output.push_str(&chunk);
+                match chunk { Event::Output(text) => output.push_str(&text), Event::Error(error) => panic!("{error}") }
             }
             if let Some(status) = backend.child.try_wait().unwrap() {
                 assert!(status.success());
@@ -172,9 +197,52 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         while let Ok(chunk) = backend.output.recv_timeout(Duration::from_secs(1)) {
-            output.push_str(&chunk);
+            match chunk { Event::Output(text) => output.push_str(&text), Event::Error(error) => panic!("{error}") }
         }
         assert!(output.contains("No processes."), "{output}");
         assert!(output.contains("Commands:"), "{output}");
     }
+    #[test]
+    fn malformed_bytes_do_not_corrupt_split_unicode() {
+        let mut pending = vec![0xff, 0xe6, 0xb8];
+        assert_eq!(decode(&mut pending, false), "\u{fffd}");
+        pending.extend_from_slice(&[0xac, b'!']);
+        assert_eq!(decode(&mut pending, false), "測!");
+        assert!(pending.is_empty());
+        pending.push(0xe6);
+        assert_eq!(decode(&mut pending, true), "\u{fffd}");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn read_errors_are_reported_and_interrupted_reads_retry() {
+        struct Broken(bool);
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                let kind = if self.0 { std::io::ErrorKind::Other } else { self.0 = true; std::io::ErrorKind::Interrupted };
+                Err(std::io::Error::from(kind))
+            }
+        }
+        let (tx, rx) = mpsc::sync_channel(4);
+        read_output(Box::new(Broken(false)), "stdout", tx);
+        assert!(matches!(rx.recv().unwrap(), Event::Error(text) if text.contains("stdout read failed")));
+    }
+
+    #[test]
+    #[ignore = "requires HENOSIS_TEST_BACKEND pointing to the built Rust workspace"]
+    fn rejects_commands_after_backend_exit() {
+        let path = std::env::var_os("HENOSIS_TEST_BACKEND").expect("set HENOSIS_TEST_BACKEND");
+        let mut backend = Backend::start(Path::new(&path)).unwrap();
+        backend.send("exit".into()).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while backend.child.try_wait().unwrap().is_none() {
+            if std::time::Instant::now() >= deadline {
+                let _ = backend.child.kill(); let _ = backend.child.wait();
+                panic!("backend did not exit");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(backend.send("list".into()).unwrap_err().contains("exited"));
+    }
+
 }
