@@ -21,7 +21,7 @@ jobs:
         run: bash .github/scripts/check-rust.sh test --locked --workspace --no-run
       - name: Run workspace tests (fail on test errors)
         shell: bash
-        run: bash .github/scripts/check-rust.sh test --locked --workspace
+        run: bash .github/scripts/check-rust.sh test --locked --workspace --no-fail-fast
       # Existing workspace lint warnings are advisory. Compiler/lint errors
       # still fail the job; the desktop job additionally denies all warnings.
       - name: Check workspace lints
