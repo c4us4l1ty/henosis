@@ -23,6 +23,11 @@ pub enum DlpCategory {
     CredentialPrefix,
     SensitiveHostPath,
     HighEntropyToken,
+    PiiEmail,
+    PiiSsn,
+    PiiCreditCard,
+    CloudProviderKey,
+    DatabaseConnectionString,
 }
 
 impl DlpCategory {
@@ -34,6 +39,11 @@ impl DlpCategory {
             Self::CredentialPrefix => "credential_prefix",
             Self::SensitiveHostPath => "sensitive_host_path",
             Self::HighEntropyToken => "high_entropy_token",
+            Self::PiiEmail => "pii_email",
+            Self::PiiSsn => "pii_ssn",
+            Self::PiiCreditCard => "pii_credit_card",
+            Self::CloudProviderKey => "cloud_provider_key",
+            Self::DatabaseConnectionString => "database_connection_string",
         }
     }
 }
@@ -83,6 +93,29 @@ const SENSITIVE_PATHS: &[&str] = &[
     ".git-credentials",
     "/.netrc",
 ];
+
+const CLOUD_PROVIDER_PREFIXES: &[(&str, &str)] = &[
+    ("AKIA", "AWS access key ID"),
+    ("SKIA", "AWS secret access key"),
+    ("ya29.", "Google OAuth access token"),
+    ("AIza", "Google API key"),
+    ("sq0atp-", "Square access token"),
+    ("stripe_live_", "Stripe live key"),
+    ("sq0csp-", "Square application key"),
+];
+
+const DATABASE_URL_SCHEMES: &[&str] = &[
+    "postgresql://",
+    "postgres://",
+    "mysql://",
+    "mysqlx://",
+    "mongodb://",
+    "mongodb+srv://",
+    "redis://",
+    "mysql+asyncmy://",
+];
+
+const EMAIL_MARKERS: &[&str] = &["@", ".com", ".org", ".net", ".edu", ".gov"];
 
 /// Outbound scanner configuration with zeroized registered vault secrets.
 pub struct DlpScanner {
@@ -190,6 +223,40 @@ impl DlpScanner {
                 });
             }
         }
+        for &(prefix, label) in CLOUD_PROVIDER_PREFIXES {
+            if contains_credential_prefix(&text, prefix) {
+                return Err(DlpViolation {
+                    category: DlpCategory::CloudProviderKey,
+                    reason: format!("payload matched {label}"),
+                });
+            }
+        }
+        for scheme in DATABASE_URL_SCHEMES {
+            if text.contains(scheme) {
+                return Err(DlpViolation {
+                    category: DlpCategory::DatabaseConnectionString,
+                    reason: "payload contained a database connection string".into(),
+                });
+            }
+        }
+        if contains_pii_email(&text) {
+            return Err(DlpViolation {
+                category: DlpCategory::PiiEmail,
+                reason: "payload contained an email address".into(),
+            });
+        }
+        if contains_pii_ssn(&text) {
+            return Err(DlpViolation {
+                category: DlpCategory::PiiSsn,
+                reason: "payload contained a US Social Security Number pattern".into(),
+            });
+        }
+        if contains_pii_credit_card(&text) {
+            return Err(DlpViolation {
+                category: DlpCategory::PiiCreditCard,
+                reason: "payload contained a credit card number pattern".into(),
+            });
+        }
         if has_high_entropy_token(&text, self.entropy_min_len, self.entropy_bits_threshold) {
             return Err(DlpViolation {
                 category: DlpCategory::HighEntropyToken,
@@ -212,6 +279,72 @@ fn contains_credential_prefix(text: &str, prefix: &str) -> bool {
             return true;
         }
         rest = after;
+    }
+    false
+}
+
+/// Heuristic email detection: looks for `something@domain.tld` patterns.
+/// Not a full RFC validator; catches common plaintext email exposure.
+fn contains_pii_email(text: &str) -> bool {
+    let mut rest = text;
+    while let Some(at) = rest.find('@') {
+        let before = &rest[..at];
+        let after = &rest[at + 1..];
+        if !before.is_empty()
+            && before
+                .bytes()
+                .rev()
+                .take_while(|b| b.is_ascii_alphanumeric() || *b == b'.' || *b == b'_' || *b == b'-')
+                .count()
+                >= 1
+            && EMAIL_MARKERS.iter().any(|m| after.contains(*m))
+        {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
+/// Heuristic SSN detection: `ddd-dd-dddd` pattern.
+fn contains_pii_ssn(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut idx = 0;
+    while idx + 10 < bytes.len() {
+        if bytes[idx].is_ascii_digit()
+            && bytes[idx + 1].is_ascii_digit()
+            && bytes[idx + 2].is_ascii_digit()
+            && bytes[idx + 3] == b'-'
+            && bytes[idx + 4].is_ascii_digit()
+            && bytes[idx + 5].is_ascii_digit()
+            && bytes[idx + 6] == b'-'
+            && bytes[idx + 7].is_ascii_digit()
+            && bytes[idx + 8].is_ascii_digit()
+            && bytes[idx + 9].is_ascii_digit()
+            && bytes[idx + 10].is_ascii_digit()
+        {
+            return true;
+        }
+        idx += 1;
+    }
+    false
+}
+
+/// Heuristic credit card detection: 13-19 digit runs with optional separators.
+/// Uses Luhn-like length check only; not a full validator.
+fn contains_pii_credit_card(text: &str) -> bool {
+    let mut run = 0usize;
+    for b in text.bytes() {
+        if b.is_ascii_digit() {
+            run += 1;
+            if run >= 13 && run <= 19 {
+                return true;
+            }
+        } else if matches!(b, b'-' | b' ' | b':') {
+            continue;
+        } else {
+            run = 0;
+        }
     }
     false
 }
@@ -309,5 +442,29 @@ mod tests {
             .scan(b"blob=aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3+/A4B5C6D7E8F9G0H1")
             .unwrap_err();
         assert_eq!(r5.category, DlpCategory::HighEntropyToken);
+    }
+
+    #[test]
+    fn blocks_cloud_provider_keys_database_strings_and_pii() {
+        let scanner = DlpScanner::new();
+
+        let r1 = scanner.scan(b"AKIAIOSFODNN7EXAMPLE").unwrap_err();
+        assert_eq!(r1.category, DlpCategory::CloudProviderKey);
+
+        let r2 = scanner
+            .scan(b"postgresql://user:pass@db.example.com:5432/mydb")
+            .unwrap_err();
+        assert_eq!(r2.category, DlpCategory::DatabaseConnectionString);
+
+        let r3 = scanner
+            .scan(b"contact alice@example.com for details")
+            .unwrap_err();
+        assert_eq!(r3.category, DlpCategory::PiiEmail);
+
+        let r4 = scanner.scan(b"123-45-6789").unwrap_err();
+        assert_eq!(r4.category, DlpCategory::PiiSsn);
+
+        let r5 = scanner.scan(b"4111-1111-1111-1111").unwrap_err();
+        assert_eq!(r5.category, DlpCategory::PiiCreditCard);
     }
 }

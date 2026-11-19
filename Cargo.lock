@@ -350,7 +350,9 @@ dependencies = [
 name = "henosis-leverage"
 version = "0.1.0"
 dependencies = [
+ "henosis-crux",
  "henosis-dag",
+ "henosis-evidence",
  "serde",
  "serde_json",
 ]
@@ -373,9 +375,13 @@ dependencies = [
 name = "henosis-shell"
 version = "0.1.0"
 dependencies = [
+ "henosis-akashi",
  "henosis-crux",
+ "henosis-dag",
  "henosis-evidence",
  "henosis-jail",
+ "henosis-leverage",
+ "henosis-vault",
  "shell-words",
  "tempfile",
 ]

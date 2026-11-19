@@ -5,10 +5,14 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+henosis-crux = { path = "../henosis-crux" }
 henosis-evidence = { path = "../henosis-evidence" }
 henosis-jail = { path = "../henosis-jail" }
+henosis-leverage = { path = "../henosis-leverage" }
+henosis-dag = { path = "../henosis-dag" }
+henosis-vault = { path = "../henosis-vault" }
+henosis-akashi = { path = "../henosis-akashi" }
 shell-words = "1.1"
-henosis-crux = { path = "../henosis-crux" }
 
 [dev-dependencies]
 tempfile = "3.15"

@@ -258,6 +258,7 @@ pub struct Worldline {
     pub version: u32,
     pub head_branch: String,
     pub branches: BTreeMap<String, String>,
+    pub tags: BTreeMap<String, String>,
     pub commits: BTreeMap<String, Commit>,
 }
 
@@ -273,6 +274,7 @@ impl Worldline {
             version: WORLDLINE_VERSION,
             head_branch: "main".into(),
             branches: BTreeMap::new(),
+            tags: BTreeMap::new(),
             commits: BTreeMap::new(),
         }
     }
@@ -332,6 +334,35 @@ impl Worldline {
         }
         self.head_branch = branch_name.to_owned();
         Ok(())
+    }
+
+    /// Create a lightweight tag pointing to `commit_id`. Tags are immutable
+    /// named references to commits, useful for marking releases or baselines.
+    pub fn tag(&mut self, tag_name: &str, commit_id: &str) -> Result<(), DagError> {
+        validate_id(tag_name).map_err(DagError::Validation)?;
+        if self.tags.contains_key(tag_name) {
+            return Err(DagError::Validation(format!(
+                "tag '{tag_name}' already exists"
+            )));
+        }
+        if !self.commits.contains_key(commit_id) {
+            return Err(DagError::NotFound(format!("commit '{commit_id}'")));
+        }
+        self.tags.insert(tag_name.to_owned(), commit_id.to_owned());
+        Ok(())
+    }
+
+    /// Resolve a tag name to its target commit ID.
+    pub fn resolve_tag(&self, tag_name: &str) -> Result<&str, DagError> {
+        self.tags
+            .get(tag_name)
+            .map(String::as_str)
+            .ok_or_else(|| DagError::NotFound(format!("tag '{tag_name}'")))
+    }
+
+    /// List all tag names in sorted order.
+    pub fn list_tags(&self) -> Vec<&str> {
+        self.tags.keys().map(String::as_str).collect()
     }
 
     /// Deterministically merge `source_branch` into `head_branch`. Performs a
@@ -642,6 +673,15 @@ impl Worldline {
                 )));
             }
             let _ = self.materialize_at(tip)?;
+        }
+
+        for (tag, target) in &self.tags {
+            validate_id(tag).map_err(DagError::Integrity)?;
+            if !self.commits.contains_key(target) {
+                return Err(DagError::Integrity(format!(
+                    "tag '{tag}' points to unknown commit '{target}'"
+                )));
+            }
         }
 
         Ok(signed_count)
