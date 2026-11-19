@@ -299,6 +299,7 @@ where F: FnOnce(&mut Child) -> io::Result<()> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_inner(project: &str, artifact: &str, expected_exit: i32, program: &str, arguments: &[String], environment: &[(String, OsString)], limits: (Duration, Duration)) -> io::Result<Evidence> {
     let directory = Path::new(project);
     let executable = Path::new(program);
