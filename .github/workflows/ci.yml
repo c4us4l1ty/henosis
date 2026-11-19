@@ -23,12 +23,8 @@ jobs:
       - run: |
           set +e
           cargo test --locked --workspace 2>&1 | tee /tmp/test_output.txt
-          TEST_EXIT_CODE=${PIPESTATUS[0]}
           set -e
-          echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_ENV
         shell: bash
-      - run: echo "::error::TEST_EXIT_CODE=${TEST_EXIT_CODE}"
-        if: always()
       - run: |
           sed 's/\x1b\[[0-9;]*m//g' /tmp/test_output.txt | grep -Ei 'error|cannot|unresolved|undefined|mismatch|panicked|FAILED|failures:' | while IFS= read -r line; do
             echo "::error::${line}"
