@@ -14,7 +14,7 @@
 use crate::Interval;
 use henosis_dag::{validate_id, CsrHypergraph};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,14 +90,15 @@ pub fn detect_abandonment(
     active_goals: &[String],
     verified: &BTreeSet<String>,
 ) -> Result<Vec<MandateReport>, String> {
-    // Union of every capability that at least one active goal's backward
-    // light-cone reports as missing (i.e. load-bearing foundations).
+    // Per-goal map: each active goal -> the capabilities its backward light-cone
+    // reports as missing (i.e. load-bearing foundations for that goal).
+    let mut goal_needed_caps: BTreeMap<&String, BTreeSet<String>> = BTreeMap::new();
+    // Union across all goals for the overall load-bearing check.
     let mut load_bearing_caps: BTreeSet<String> = BTreeSet::new();
     for goal in active_goals {
         let cone = hypergraph.backward_light_cone(goal, verified)?;
-        for cap in cone.missing_capabilities {
-            load_bearing_caps.insert(cap);
-        }
+        goal_needed_caps.insert(goal, cone.missing_capabilities.clone());
+        load_bearing_caps.extend(cone.missing_capabilities);
     }
 
     let mut reports = Vec::with_capacity(mandates.len());
@@ -106,7 +107,11 @@ pub fn detect_abandonment(
         let actually_supported: Vec<String> = mandate
             .claimed_supported_goals
             .iter()
-            .filter(|_| load_bearing_caps.contains(&mandate.id))
+            .filter(|goal| {
+                goal_needed_caps
+                    .get(goal)
+                    .map_or(false, |caps| caps.contains(&mandate.id))
+            })
             .cloned()
             .collect();
         let load_bearing = load_bearing_caps.contains(&mandate.id);
