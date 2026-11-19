@@ -25,7 +25,14 @@ pub fn encode(words: &[&str]) -> Result<String, String> {
 
 impl Backend {
     pub fn start(path: &Path) -> std::io::Result<Self> {
-        let mut child = Command::new(path)
+        let mut command = Command::new(path);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // Keep the CLI backend hidden when launched from the native GUI.
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

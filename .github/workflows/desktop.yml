@@ -51,6 +51,25 @@ jobs:
         shell: bash
         run: |
           set +e
-          xvfb-run -a timeout 10s target/debug/henosis-desktop
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a timeout 10s target/debug/henosis-desktop > window.log 2>&1
           result=$?
-          test "$result" -eq 124
+          cat window.log
+          if [ "$result" -ne 124 ]; then
+            python3 - <<'PYCODE'
+          from pathlib import Path
+          text = Path("window.log").read_text(errors="replace")
+          print("::error::" + text.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"))
+          PYCODE
+            exit 1
+          fi
+      - name: Downloadable native binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: henosis-desktop-${{ runner.os }}
+          path: |
+            target/debug/henosis-desktop
+            target/debug/henosis-shell
+            target/debug/henosis-desktop.exe
+            target/debug/henosis-shell.exe
+          if-no-files-found: error
