@@ -226,11 +226,12 @@ impl Identity {
         info.extend_from_slice(IDENTITY_INFO);
         info.push(b'\0');
         info.extend_from_slice(purpose.as_bytes());
-        let hkdf = Hkdf::<Sha256>::new(Some(SUBKEY_SALT), &self.public_key());
+        let secret_bytes = Zeroizing::new(self.signing_key.to_bytes());
+        let hkdf = Hkdf::<Sha256>::new(Some(SUBKEY_SALT), secret_bytes.as_ref());
         let mut key_bytes = Zeroizing::new([0u8; 32]);
         hkdf.expand(&info, key_bytes.as_mut())
             .map_err(|_| IdentityError::InvalidKey)?;
-        let signing_key = SigningKey::from_bytes(&*key_bytes);
+        let signing_key = SigningKey::from_bytes(&key_bytes);
         Ok(Self { signing_key })
     }
 }
@@ -380,5 +381,25 @@ mod tests {
             Identity::recover(&long, ""),
             Err(IdentityError::WrongWordCount)
         ));
+    }
+
+    #[test]
+    fn rotate_key_depends_on_secret_key_not_public_key() {
+        let identity = Identity::recover(PHRASE, "").unwrap();
+        let rotated = identity.rotate_key("epoch-2026-11").unwrap();
+        assert_ne!(rotated.public_key(), identity.public_key());
+
+        // Anyone knowing only the public key + purpose must NOT be able to derive the rotated key.
+        let mut info = Vec::new();
+        info.extend_from_slice(IDENTITY_INFO);
+        info.push(b'\0');
+        info.extend_from_slice(b"epoch-2026-11");
+        let public_hkdf = Hkdf::<Sha256>::new(Some(SUBKEY_SALT), &identity.public_key());
+        let mut wrong_bytes = [0u8; 32];
+        public_hkdf.expand(&info, &mut wrong_bytes).unwrap();
+        let wrong_pk = SigningKey::from_bytes(&wrong_bytes)
+            .verifying_key()
+            .to_bytes();
+        assert_ne!(rotated.public_key(), wrong_pk);
     }
 }

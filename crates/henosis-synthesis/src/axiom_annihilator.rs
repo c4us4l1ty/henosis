@@ -317,7 +317,7 @@ mod combination {
             } else {
                 (0..size).collect()
             };
-            Self { n, size, vals, finished: size == 0 || size > n }
+            Self { n, size, vals, finished: size > n }
         }
 
         pub(super) fn next(&mut self) -> Option<Vec<u32>> {
@@ -404,6 +404,18 @@ mod tests {
             Event::Proposed { goal, .. } => assert!(goal.contains("[system sys-1]")),
             _ => unreachable!(),
         }
+    }
+
+    #[test]
+    fn conflict_free_system_returns_empty_hitting_set() {
+        let system = AxiomSystem {
+            id: "sys-clean".into(),
+            axioms: vec![axiom("a1", "iron"), axiom("a2", "convention")],
+            conflicts: vec![],
+        };
+        let result = lobachevsky(&system).unwrap();
+        assert_eq!(result.minimal_hitting_sets.len(), 1);
+        assert!(result.minimal_hitting_sets[0].annihilated_axioms.is_empty());
     }
 }
 

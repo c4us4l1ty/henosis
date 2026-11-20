@@ -15,6 +15,15 @@ pub enum Event {
     Error(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedProcess {
+    pub id: u64,
+    pub pid: u32,
+    pub running: bool,
+    pub state_label: String,
+    pub program: String,
+}
+
 pub struct Backend {
     pub child: Child,
     pub output: mpsc::Receiver<Event>,
@@ -27,6 +36,44 @@ pub fn encode(words: &[&str]) -> Result<String, String> {
         return Err("Fields cannot contain newlines or NUL characters.".into());
     }
     Ok(shell_words::join(words.iter().copied()))
+}
+
+/// Strip leading `henosis> ` REPL prompts from a single output line.
+pub fn strip_prompt(mut line: &str) -> &str {
+    while let Some(rest) = line.strip_prefix("henosis> ") {
+        line = rest;
+    }
+    line.trim_end_matches('\r')
+}
+
+/// Parse one process status line emitted by `henosis-shell`'s `list` command:
+/// `<id>  pid=<pid>  <running|exited (...)>  <program>`
+pub fn parse_process_line(raw_line: &str) -> Option<ParsedProcess> {
+    let line = strip_prompt(raw_line).trim();
+    let (id_part, rest) = line.split_once("  pid=")?;
+    let id = id_part.trim().parse::<u64>().ok()?;
+    let (pid_part, rest) = rest.split_once("  ")?;
+    let pid = pid_part.trim().parse::<u32>().ok()?;
+    if let Some(program) = rest.strip_prefix("running  ") {
+        return Some(ParsedProcess {
+            id,
+            pid,
+            running: true,
+            state_label: "Running".into(),
+            program: program.to_owned(),
+        });
+    }
+    if let Some(after_exited) = rest.strip_prefix("exited (") {
+        let (code_detail, program) = after_exited.split_once(")  ")?;
+        return Some(ParsedProcess {
+            id,
+            pid,
+            running: false,
+            state_label: format!("Exited ({code_detail})"),
+            program: program.to_owned(),
+        });
+    }
+    None
 }
 
 impl Backend {
@@ -62,7 +109,9 @@ impl Backend {
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(line) => {
                         if let Err(error) = writeln!(stdin, "{line}") {
-                            let _ = tx.send(Event::Error(format!("Workspace input failed: {error}. A command may be partially written; inspect before retrying.")));
+                            let _ = tx.send(Event::Error(format!(
+                                "Workspace input failed: {error}. A command may be partially written; inspect before retrying."
+                            )));
                             break;
                         }
                     }
@@ -173,6 +222,7 @@ fn read_output(mut stream: Box<dyn Read + Send>, name: &str, tx: mpsc::SyncSende
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn round_trip() {
         let words = [
@@ -185,6 +235,7 @@ mod tests {
         ];
         assert_eq!(shell_words::split(&encode(&words).unwrap()).unwrap(), words);
     }
+
     #[test]
     fn rejects_command_injection() {
         for text in ["ok\nexit", "ok\rexit", "\0"] {
@@ -194,6 +245,22 @@ mod tests {
             shell_words::split(&encode(&["; echo hi"]).unwrap()).unwrap(),
             ["; echo hi"]
         );
+    }
+
+    #[test]
+    fn parses_process_list_lines() {
+        let running = parse_process_line("henosis> 1  pid=4242  running  /bin/sleep").unwrap();
+        assert_eq!(running.id, 1);
+        assert_eq!(running.pid, 4242);
+        assert!(running.running);
+        assert_eq!(running.program, "/bin/sleep");
+
+        let exited =
+            parse_process_line("2  pid=9001  exited (exit status: 0)  /usr/bin/true").unwrap();
+        assert_eq!(exited.id, 2);
+        assert!(!exited.running);
+        assert_eq!(exited.program, "/usr/bin/true");
+        assert!(parse_process_line("henosis> No processes.").is_none());
     }
 
     #[test]
@@ -235,6 +302,7 @@ mod tests {
         assert!(output.contains("No processes."), "{output}");
         assert!(output.contains("Commands:"), "{output}");
     }
+
     #[test]
     fn malformed_bytes_do_not_corrupt_split_unicode() {
         let mut pending = vec![0xff, 0xe6, 0xb8];

@@ -88,32 +88,34 @@ pub fn detect_abandonment(
     hypergraph: &CsrHypergraph,
     mandates: &[Mandate],
     active_goals: &[String],
-    verified: &BTreeSet<String>,
+    _verified: &BTreeSet<String>,
 ) -> Result<Vec<MandateReport>, String> {
-    // Per-goal map: each active goal -> the capabilities its backward light-cone
-    // reports as missing (i.e. load-bearing foundations for that goal).
-    let mut goal_needed_caps: BTreeMap<&String, Vec<String>> = BTreeMap::new();
-    // Union across all goals for the overall load-bearing check.
+    // Trace the full structural backward light-cone (passing an empty verified set so
+    // foundations beneath already-verified intermediate capabilities remain load-bearing).
+    let empty = BTreeSet::new();
+    let mut goal_needed_caps: BTreeMap<&String, BTreeSet<String>> = BTreeMap::new();
     let mut load_bearing_caps: BTreeSet<String> = BTreeSet::new();
     for goal in active_goals {
-        let cone = hypergraph.backward_light_cone(goal, verified)?;
-        goal_needed_caps.insert(goal, cone.missing_capabilities.clone());
-        load_bearing_caps.extend(cone.missing_capabilities);
+        let cone = hypergraph.backward_light_cone(goal, &empty)?;
+        let needed: BTreeSet<String> = cone.missing_capabilities.into_iter().collect();
+        load_bearing_caps.extend(needed.iter().cloned());
+        goal_needed_caps.insert(goal, needed);
     }
 
     let mut reports = Vec::with_capacity(mandates.len());
     for mandate in mandates {
         mandate.validate()?;
-        let actually_supported: Vec<String> = mandate
-            .claimed_supported_goals
+        let mut actually_supported: Vec<String> = active_goals
             .iter()
             .filter(|goal| {
                 goal_needed_caps
                     .get(goal)
-                    .map_or(false, |caps| caps.contains(&mandate.id))
+                    .is_some_and(|caps| caps.contains(&mandate.id))
             })
             .cloned()
             .collect();
+        actually_supported.sort();
+        actually_supported.dedup();
         let load_bearing = load_bearing_caps.contains(&mandate.id);
 
         let weekly_cost = f64::from(mandate.cost_units);
@@ -252,5 +254,25 @@ mod tests {
         assert_eq!(reports[0].verdict, AbandonmentVerdict::Abandon);
         let targets = subtraction_targets(&reports, 1);
         assert_eq!(targets[0].mandate_id, "irrelevant");
+    }
+
+    #[test]
+    fn already_verified_foundation_remains_load_bearing() {
+        let hg = CsrHypergraph::from_contracts(&[
+            contract("c1", &["foundation"], "mid", 2),
+            contract("c2", &["mid"], "goal", 3),
+        ]);
+        let mandates = [Mandate {
+            id: "foundation".into(),
+            title: "Foundation".into(),
+            domain: "d".into(),
+            cost_units: 5,
+            claimed_supported_goals: vec![],
+        }];
+        let verified = BTreeSet::from(["foundation".to_owned(), "mid".to_owned()]);
+        let reports = detect_abandonment(&hg, &mandates, &["goal".into()], &verified).unwrap();
+        assert_eq!(reports[0].verdict, AbandonmentVerdict::Retain);
+        assert!(reports[0].load_bearing);
+        assert_eq!(reports[0].actually_supported_goals, vec!["goal".to_owned()]);
     }
 }
