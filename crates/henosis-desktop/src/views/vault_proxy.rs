@@ -43,9 +43,7 @@ fn show_identity_and_vault(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
             nested_card(ui, |ui| {
                 ui.horizontal(|ui| {
                     badge(ui, "Back Up Now", AMBER, AMBER_BG);
-                    ui.label(
-                        RichText::new("12-Word Recovery Phrase (shown once)").strong(),
-                    );
+                    ui.label(RichText::new("12-Word Recovery Phrase (shown once)").strong());
                 });
                 ui.add_space(4.0);
                 ui.label(RichText::new(phrase.as_str()).monospace().size(13.0));
@@ -97,17 +95,20 @@ fn show_identity_and_vault(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
         // Session-only recovery phrase option when no vault is open
         if ws.vault.is_none() && ws.active_identity.is_none() {
             ui.add_space(6.0);
-            ui.collapsing("Recover signing key from 12-word phrase (session only)", |ui| {
-                secret_field(
-                    ui,
-                    "12-Word Phrase",
-                    "twelve lowercase words…",
-                    &mut ws.session_mnemonic_input,
-                );
-                if ui.button("Load Session Identity").clicked() {
-                    ws.load_session_mnemonic();
-                }
-            });
+            ui.collapsing(
+                "Recover signing key from 12-word phrase (session only)",
+                |ui| {
+                    secret_field(
+                        ui,
+                        "12-Word Phrase",
+                        "twelve lowercase words…",
+                        &mut ws.session_mnemonic_input,
+                    );
+                    if ui.button("Load Session Identity").clicked() {
+                        ws.load_session_mnemonic();
+                    }
+                },
+            );
         }
 
         // Provider credentials inside unlocked vault
@@ -230,7 +231,9 @@ fn show_ai_proxy(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
                 .strong(),
         );
 
-        if !proxy_status.provider_names.contains(&ws.session_provider_input)
+        if !proxy_status
+            .provider_names
+            .contains(&ws.session_provider_input)
             && !proxy_status.provider_names.is_empty()
         {
             ws.session_provider_input = proxy_status.provider_names[0].clone();
@@ -283,11 +286,7 @@ fn show_ai_proxy(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
         }
 
         // Active sessions list
-        let sessions = ws
-            .proxy
-            .as_ref()
-            .map(|p| p.sessions())
-            .unwrap_or_default();
+        let sessions = ws.proxy.as_ref().map(|p| p.sessions()).unwrap_or_default();
         let mut revoke_id = None;
         for s in sessions {
             ui.add_space(4.0);
@@ -320,11 +319,7 @@ fn show_ai_proxy(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
         }
 
         // Live hash-chained exposure log
-        let mut exposures = ws
-            .proxy
-            .as_ref()
-            .map(|p| p.exposures())
-            .unwrap_or_default();
+        let mut exposures = ws.proxy.as_ref().map(|p| p.exposures()).unwrap_or_default();
         exposures.reverse();
         if !exposures.is_empty() {
             ui.add_space(8.0);

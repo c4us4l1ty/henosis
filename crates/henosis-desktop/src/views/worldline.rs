@@ -1,5 +1,5 @@
 //! Minimalist Worldline Merkle-DAG view: branches, nodes, contracts, quarantine, failures, commits.
-use crate::state::{WorldlineSubtab, WorkspaceData, ENTITY_KINDS};
+use crate::state::{WorkspaceData, WorldlineSubtab, ENTITY_KINDS};
 use crate::theme::{
     badge, card, empty_state, nested_card, pill_toggle, primary_button, text_field, ACCENT,
     ACCENT_BG, AMBER, AMBER_BG, BG_NESTED, GREEN, GREEN_BG, RED, RED_BG, TEXT_MUTED,
@@ -414,7 +414,11 @@ fn render_contracts(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
                     let inspecting =
                         ws.wl_selected_goal_contract.as_deref() == Some(ctr.output.as_str());
                     if ui
-                        .small_button(if inspecting { "Hide Cone" } else { "Light-Cone" })
+                        .small_button(if inspecting {
+                            "Hide Cone"
+                        } else {
+                            "Light-Cone"
+                        })
                         .clicked()
                     {
                         ws.wl_selected_goal_contract = if inspecting {
@@ -435,8 +439,7 @@ fn render_contracts(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
             );
             if !ctr.prerequisites.is_empty() {
                 ui.label(
-                    RichText::new(format!("Requires: {}", ctr.prerequisites.join(", ")))
-                        .size(12.0),
+                    RichText::new(format!("Requires: {}", ctr.prerequisites.join(", "))).size(12.0),
                 );
             }
 
@@ -619,7 +622,10 @@ fn render_history(ui: &mut egui::Ui, ws: &mut WorkspaceData, wl: &henosis_dag::W
                             ui.selectable_value(&mut ws.wl_merge_source, b.clone(), b);
                         }
                     });
-                if ui.small_button(format!("Merge into {}", wl.head_branch)).clicked() {
+                if ui
+                    .small_button(format!("Merge into {}", wl.head_branch))
+                    .clicked()
+                {
                     ws.merge_branch();
                 }
             }

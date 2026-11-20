@@ -233,9 +233,7 @@ fn render_proposal_card(ui: &mut egui::Ui, ws: &mut WorkspaceData, item: &Propos
 
         ui.add_space(4.0);
         ui.label(RichText::new(&item.goal).size(15.0).strong());
-        ui.label(
-            RichText::new(format!("Hypothesis: {}", item.hypothesis)).size(13.0),
-        );
+        ui.label(RichText::new(format!("Hypothesis: {}", item.hypothesis)).size(13.0));
         ui.label(
             RichText::new(format!("Test: {}", item.test))
                 .size(12.5)
@@ -336,9 +334,7 @@ fn render_proposal_card(ui: &mut egui::Ui, ws: &mut WorkspaceData, item: &Propos
                         ui.add(
                             egui::Slider::new(&mut ws.crux_fail_score, 1..=5).text("Failure Risk"),
                         );
-                        ui.add(
-                            egui::Slider::new(&mut ws.crux_cost_score, 1..=5).text("Cost"),
-                        );
+                        ui.add(egui::Slider::new(&mut ws.crux_cost_score, 1..=5).text("Cost"));
                     });
                     ui.horizontal(|ui| {
                         if primary_button(ui, "Save Score").clicked() {
