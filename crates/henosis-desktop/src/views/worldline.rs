@@ -1,8 +1,8 @@
 //! Minimalist Worldline Merkle-DAG view: branches, nodes, contracts, quarantine, failures, commits.
-use crate::state::{WorldlineSubtab, WorkspaceData, ENTITY_KINDS};
+use crate::state::{ENTITY_KINDS, WorkspaceData, WorldlineSubtab};
 use crate::theme::{
-    badge, card, empty_state, nested_card, pill_toggle, primary_button, text_field, ACCENT,
-    ACCENT_BG, AMBER, AMBER_BG, BG_NESTED, GREEN, GREEN_BG, RED, RED_BG, TEXT_MUTED,
+    ACCENT, ACCENT_BG, AMBER, AMBER_BG, BG_NESTED, GREEN, GREEN_BG, RED, RED_BG, TEXT_MUTED,
+    badge, card, empty_state, nested_card, pill_toggle, primary_button, text_field,
 };
 use eframe::egui::{self, Layout, RichText};
 use henosis_dag::{AssistanceProvenance, EpistemicStatus};

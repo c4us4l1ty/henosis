@@ -1,9 +1,9 @@
 //! Minimalist Supervised Processes view backed by the persistent `henosis-shell` supervisor.
-use crate::backend::{encode, ParsedProcess};
+use crate::backend::{ParsedProcess, encode};
 use crate::state::WorkspaceData;
 use crate::theme::{
-    badge, card, empty_state, primary_button, text_field, ACCENT, ACCENT_BG, BG_NESTED, GREEN,
-    GREEN_BG, TEXT_MUTED,
+    ACCENT, ACCENT_BG, BG_NESTED, GREEN, GREEN_BG, TEXT_MUTED, badge, card, empty_state,
+    primary_button, text_field,
 };
 use eframe::egui::{self, Layout, RichText};
 

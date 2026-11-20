@@ -4,15 +4,15 @@ mod state;
 mod theme;
 mod views;
 
-use backend::{parse_process_line, strip_prompt, Backend, Event, ParsedProcess};
+use backend::{Backend, Event, ParsedProcess, parse_process_line, strip_prompt};
 use eframe::egui::{self, Layout, Margin, RichText, Rounding, Stroke};
 use henosis_proxy::impedance::ImpedanceMode;
 use state::{Page, WorkspaceData};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use theme::{
-    apply_theme, badge, card, pill_toggle, primary_button, text_field, ACCENT, ACCENT_BG, AMBER,
-    BG_CARD, BG_PANEL, BORDER_SUBTLE, GREEN, GREEN_BG, RED, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT, ACCENT_BG, AMBER, BG_CARD, BG_PANEL, BORDER_SUBTLE, GREEN, GREEN_BG, RED, TEXT_MUTED,
+    TEXT_PRIMARY, apply_theme, badge, card, pill_toggle, primary_button, text_field,
 };
 use views::processes::ProcessAction;
 
@@ -230,7 +230,7 @@ impl Desktop {
                 egui::Frame::none()
                     .fill(BG_PANEL)
                     .inner_margin(Margin::symmetric(14.0, 8.0))
-                    .stroke(Stroke::new(1.0, BORDER_SUBTLE)),
+                    .stroke(Stroke::new(1.0_f32, BORDER_SUBTLE)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -302,7 +302,7 @@ impl Desktop {
                 egui::Frame::none()
                     .fill(BG_PANEL)
                     .inner_margin(Margin::symmetric(10.0, 12.0))
-                    .stroke(Stroke::new(1.0, BORDER_SUBTLE)),
+                    .stroke(Stroke::new(1.0_f32, BORDER_SUBTLE)),
             )
             .show(ctx, |ui| {
                 let open_crux = self.ws.crux.proposals.iter().filter(|p| !p.closed).count();
@@ -346,7 +346,7 @@ impl Desktop {
                 egui::Frame::none()
                     .fill(BG_PANEL)
                     .inner_margin(Margin::symmetric(14.0, 6.0))
-                    .stroke(Stroke::new(1.0, BORDER_SUBTLE)),
+                    .stroke(Stroke::new(1.0_f32, BORDER_SUBTLE)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -389,7 +389,7 @@ impl Desktop {
                         .fill(BG_CARD)
                         .rounding(Rounding::same(6.0))
                         .inner_margin(Margin::same(8.0))
-                        .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+                        .stroke(Stroke::new(1.0_f32, BORDER_SUBTLE))
                         .show(ui, |ui| {
                             egui::ScrollArea::vertical()
                                 .id_salt("drawer_console_scroll")
@@ -511,7 +511,7 @@ fn sidebar_item(
         egui::Color32::TRANSPARENT
     };
     let stroke = if selected {
-        Stroke::new(1.0, ACCENT)
+        Stroke::new(1.0_f32, ACCENT)
     } else {
         Stroke::NONE
     };

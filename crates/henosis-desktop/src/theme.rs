@@ -34,30 +34,30 @@ pub fn apply_theme(ctx: &egui::Context) {
 
     let rounding = Rounding::same(6.0);
     visuals.widgets.noninteractive.bg_fill = BG_CARD;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER_SUBTLE);
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
     visuals.widgets.noninteractive.rounding = rounding;
 
     visuals.widgets.inactive.bg_fill = Color32::from_rgb(31, 36, 48);
     visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(28, 33, 44);
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER_SUBTLE);
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER_SUBTLE);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
     visuals.widgets.inactive.rounding = rounding;
 
     visuals.widgets.hovered.bg_fill = Color32::from_rgb(40, 47, 62);
     visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(36, 43, 57);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
     visuals.widgets.hovered.rounding = rounding;
 
     visuals.widgets.active.bg_fill = ACCENT_FILL;
     visuals.widgets.active.weak_bg_fill = ACCENT_FILL;
-    visuals.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
     visuals.widgets.active.rounding = rounding;
 
     visuals.selection.bg_fill = ACCENT_FILL;
-    visuals.selection.stroke = Stroke::new(1.0, Color32::WHITE);
+    visuals.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE);
 
     ctx.set_visuals(visuals);
     ctx.style_mut(|style| {
@@ -70,7 +70,7 @@ pub fn apply_theme(ctx: &egui::Context) {
 pub fn card(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::none()
         .fill(BG_CARD)
-        .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+        .stroke(Stroke::new(1.0_f32, BORDER_SUBTLE))
         .rounding(Rounding::same(8.0))
         .inner_margin(Margin::same(14.0))
         .show(ui, |ui| {
@@ -82,7 +82,7 @@ pub fn card(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
 pub fn nested_card(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::none()
         .fill(BG_NESTED)
-        .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+        .stroke(Stroke::new(1.0_f32, BORDER_SUBTLE))
         .rounding(Rounding::same(6.0))
         .inner_margin(Margin::same(10.0))
         .show(ui, |ui| {
@@ -105,7 +105,7 @@ pub fn primary_button(ui: &mut egui::Ui, label: impl Into<String>) -> egui::Resp
     ui.add(
         egui::Button::new(RichText::new(label.into()).color(Color32::WHITE).strong())
             .fill(ACCENT_FILL)
-            .stroke(Stroke::new(1.0, ACCENT))
+            .stroke(Stroke::new(1.0_f32, ACCENT))
             .rounding(Rounding::same(6.0)),
     )
 }
@@ -123,9 +123,9 @@ pub fn pill_toggle(ui: &mut egui::Ui, selected: bool, label: impl Into<String>) 
         Color32::TRANSPARENT
     };
     let stroke = if selected {
-        Stroke::new(1.0, ACCENT)
+        Stroke::new(1.0_f32, ACCENT)
     } else {
-        Stroke::new(1.0, BORDER_SUBTLE)
+        Stroke::new(1.0_f32, BORDER_SUBTLE)
     };
     ui.add(
         egui::Button::new(text)

@@ -1,8 +1,7 @@
 //! Structured desktop state, file-change synchronization, and non-blocking actions.
 use henosis_akashi::{
-    build_bundle, load_bundle, run_suite, save_bundle, verify_from_evidence,
-    verify_from_perturbation, written_artifact_digest, BundleInput, PerturbationCase,
-    PerturbationSuiteReport,
+    BundleInput, PerturbationCase, PerturbationSuiteReport, build_bundle, load_bundle, run_suite,
+    save_bundle, verify_from_evidence, verify_from_perturbation, written_artifact_digest,
 };
 use henosis_crux::{Event as CruxEvent, RankedProposal};
 use henosis_dag::{
@@ -11,14 +10,14 @@ use henosis_dag::{
     WorldlineOp,
 };
 use henosis_evidence::{Evidence, Request as ExperimentRequest};
-use henosis_leverage::{detect_drift, DriftReport};
+use henosis_leverage::{DriftReport, detect_drift};
 use henosis_proxy::{
-    impedance::ImpedanceMode, BlackoutReceipt, ExposureRecord, ProxyServer, SessionBudget,
-    UpstreamTarget,
+    BlackoutReceipt, ExposureRecord, ProxyServer, SessionBudget, UpstreamTarget,
+    impedance::ImpedanceMode,
 };
 use henosis_vault::{
-    keyring::{AuthScheme, UnlockedVault},
     Identity,
+    keyring::{AuthScheme, UnlockedVault},
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -1294,7 +1293,7 @@ impl WorkspaceData {
                     }
                     Ok((report, commit_note))
                 }
-                Err(err) => Err(err),
+                Err(err) => Err(err.to_string()),
             };
             let _ = tx.send(AsyncNotice::PerturbFinished {
                 target_id,
