@@ -1,23 +1,24 @@
 //! Structured desktop state, file-change synchronization, and non-blocking actions.
 use henosis_akashi::{
-    BundleInput, PerturbationCase, PerturbationSuiteReport, build_bundle, load_bundle, run_suite,
-    save_bundle, verify_from_evidence, verify_from_perturbation, written_artifact_digest,
+    build_bundle, load_bundle, run_suite, save_bundle, verify_from_evidence,
+    verify_from_perturbation, written_artifact_digest, BundleInput, PerturbationCase,
+    PerturbationSuiteReport,
 };
-use henosis_crux::{Event as CruxEvent, RankedProposal};
+use henosis_crux::Event as CruxEvent;
 use henosis_dag::{
     AssistanceProvenance, Commit, CsrHypergraph, EntityKind, EpistemicStatus, FailureRecord, Node,
     ProofOperator, QuarantineItem, RealizationContract, VerificationEntry, WorldState, Worldline,
     WorldlineOp,
 };
 use henosis_evidence::{Evidence, Request as ExperimentRequest};
-use henosis_leverage::{DriftReport, detect_drift};
+use henosis_leverage::{detect_drift, DriftReport};
 use henosis_proxy::{
-    BlackoutReceipt, ExposureRecord, ProxyServer, SessionBudget, UpstreamTarget,
-    impedance::ImpedanceMode,
+    impedance::ImpedanceMode, BlackoutReceipt, ExposureRecord, ProxyServer, SessionBudget,
+    UpstreamTarget,
 };
 use henosis_vault::{
-    Identity,
     keyring::{AuthScheme, UnlockedVault},
+    Identity,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -105,9 +106,7 @@ pub struct ProposalCard {
 #[derive(Debug, Clone, Default)]
 pub struct CruxSnapshot {
     pub exists: bool,
-    pub events: Vec<CruxEvent>,
     pub proposals: Vec<ProposalCard>,
-    pub ranked: Vec<RankedProposal>,
     pub unfinished: Vec<(u64, u64)>,
     pub command_results: Vec<(u64, u64, Evidence)>,
     pub drift: Option<DriftReport>,
@@ -121,7 +120,6 @@ pub struct WorldlineSnapshot {
     pub state: WorldState,
     pub hypergraph: Option<CsrHypergraph>,
     pub commits: Vec<Commit>,
-    pub signed_commits: usize,
     pub load_error: Option<String>,
 }
 
@@ -1258,7 +1256,8 @@ impl WorkspaceData {
                 return;
             }
         };
-        let project_dir = PathBuf::from(resolve_project_path(self.akashi_perturb_project_dir.trim()));
+        let project_dir =
+            PathBuf::from(resolve_project_path(self.akashi_perturb_project_dir.trim()));
         self.running_task = Some(format!("Running perturbation suite for '{target_id}'…"));
         let tx = self.async_tx.clone();
         let target_clone = target_id.clone();
@@ -1831,9 +1830,7 @@ fn load_crux_snapshot(stamp: &FileStamp) -> CruxSnapshot {
 
     CruxSnapshot {
         exists: true,
-        events,
         proposals: cards_map.into_values().collect(),
-        ranked,
         unfinished,
         command_results,
         drift,
@@ -1856,7 +1853,7 @@ fn load_worldline_snapshot(stamp: &FileStamp) -> WorldlineSnapshot {
             };
         }
     };
-    let signed_commits = wl.verify_all(false).unwrap_or(0);
+    let _ = wl.verify_all(false);
     let state = wl.materialize_head().unwrap_or_default();
     let hypergraph = Some(state.hypergraph());
     let mut commits: Vec<Commit> = wl
@@ -1871,7 +1868,6 @@ fn load_worldline_snapshot(stamp: &FileStamp) -> WorldlineSnapshot {
         state,
         hypergraph,
         commits,
-        signed_commits,
         load_error: None,
     }
 }

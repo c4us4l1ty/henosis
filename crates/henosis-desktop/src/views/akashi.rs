@@ -1,8 +1,8 @@
 //! Minimalist Akashi verification view: evidence, written proofs, perturbation, and .hcap bundles.
-use crate::state::{AkashiMethod, PROOF_OPERATORS, PROVENANCES, WorkspaceData};
+use crate::state::{AkashiMethod, WorkspaceData, PROOF_OPERATORS, PROVENANCES};
 use crate::theme::{
-    ACCENT, ACCENT_BG, AMBER, AMBER_BG, BG_NESTED, GREEN, GREEN_BG, TEXT_MUTED, badge, card,
-    empty_state, nested_card, pill_toggle, primary_button, text_field,
+    badge, card, empty_state, nested_card, pill_toggle, primary_button, text_field, ACCENT,
+    ACCENT_BG, AMBER, AMBER_BG, BG_NESTED, GREEN, GREEN_BG, TEXT_MUTED,
 };
 use eframe::egui::{self, RichText};
 

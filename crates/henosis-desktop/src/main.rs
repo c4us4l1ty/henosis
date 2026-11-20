@@ -4,15 +4,15 @@ mod state;
 mod theme;
 mod views;
 
-use backend::{Backend, Event, ParsedProcess, parse_process_line, strip_prompt};
+use backend::{parse_process_line, strip_prompt, Backend, Event, ParsedProcess};
 use eframe::egui::{self, Layout, Margin, RichText, Rounding, Stroke};
 use henosis_proxy::impedance::ImpedanceMode;
 use state::{Page, WorkspaceData};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use theme::{
-    ACCENT, ACCENT_BG, AMBER, BG_CARD, BG_PANEL, BORDER_SUBTLE, GREEN, GREEN_BG, RED, TEXT_MUTED,
-    TEXT_PRIMARY, apply_theme, badge, card, pill_toggle, primary_button, text_field,
+    apply_theme, badge, card, pill_toggle, primary_button, text_field, ACCENT, ACCENT_BG, AMBER,
+    BG_CARD, BG_PANEL, BORDER_SUBTLE, GREEN, GREEN_BG, RED, TEXT_MUTED, TEXT_PRIMARY,
 };
 use views::processes::ProcessAction;
 
@@ -99,9 +99,8 @@ impl Desktop {
             self.ws.set_err(msg);
             return;
         };
-        let refresh_after = line.starts_with("launch")
-            || line.starts_with("stop")
-            || line.starts_with("exit");
+        let refresh_after =
+            line.starts_with("launch") || line.starts_with("stop") || line.starts_with("exit");
         match backend.send(line) {
             Ok(()) => {
                 self.error.clear();
@@ -321,7 +320,12 @@ impl Desktop {
                         Page::Processes if running_procs > 0 => Some(running_procs.to_string()),
                         _ => None,
                     };
-                    if sidebar_item(ui, self.ws.page == page, page.label(), count_hint.as_deref()) {
+                    if sidebar_item(
+                        ui,
+                        self.ws.page == page,
+                        page.label(),
+                        count_hint.as_deref(),
+                    ) {
                         self.ws.page = page;
                     }
                     ui.add_space(2.0);
@@ -417,7 +421,12 @@ impl Desktop {
 
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("henosis>").monospace().size(12.0).color(ACCENT));
+                        ui.label(
+                            RichText::new("henosis>")
+                                .monospace()
+                                .size(12.0)
+                                .color(ACCENT),
+                        );
                         let resp = ui.add(
                             egui::TextEdit::singleline(&mut self.command)
                                 .hint_text("Type a shell command (help, list, stats crux.jsonl)…")
@@ -442,7 +451,11 @@ impl Desktop {
     fn render_settings(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Workspace Shell Connection").size(14.5).strong());
+                ui.label(
+                    RichText::new("Workspace Shell Connection")
+                        .size(14.5)
+                        .strong(),
+                );
                 if self.backend.is_some() {
                     badge(ui, "Connected", GREEN, GREEN_BG);
                 } else {
@@ -477,7 +490,12 @@ impl Desktop {
         card(ui, |ui| {
             ui.label(RichText::new("Active Workspace Files").size(14.5).strong());
             ui.add_space(6.0);
-            text_field(ui, "Crux Journal (.jsonl)", "crux.jsonl", &mut self.ws.crux_path);
+            text_field(
+                ui,
+                "Crux Journal (.jsonl)",
+                "crux.jsonl",
+                &mut self.ws.crux_path,
+            );
             text_field(
                 ui,
                 "Worldline Graph (.json)",
@@ -499,12 +517,7 @@ impl Desktop {
     }
 }
 
-fn sidebar_item(
-    ui: &mut egui::Ui,
-    selected: bool,
-    label: &str,
-    count_badge: Option<&str>,
-) -> bool {
+fn sidebar_item(ui: &mut egui::Ui, selected: bool, label: &str, count_badge: Option<&str>) -> bool {
     let fill = if selected {
         ACCENT_BG
     } else {

@@ -9,10 +9,14 @@ python3 - <<'PY'
 from pathlib import Path
 import re
 lines = Path("cargo-check.log").read_text(errors="replace").splitlines()
-for i, line in enumerate(lines):
-    if re.match(r"^(Diff in |error(\[|:)|warning:|test .*FAILED|---- .* stdout ----)", line):
-        text = "\n".join(lines[max(0, i-2):i+24])
-        level = "warning" if line.startswith("warning:") else "error"
-        print(f"::{level}::" + text.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"))
+if any(line.startswith("Diff in ") for line in lines):
+    text = "\n".join(lines)[:60000]
+    print("::error::" + text.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"))
+else:
+    for i, line in enumerate(lines):
+        if re.match(r"^(error(\[|:)|warning:|test .*FAILED|---- .* stdout ----)", line):
+            text = "\n".join(lines[max(0, i-2):i+24])
+            level = "warning" if line.startswith("warning:") else "error"
+            print(f"::{level}::" + text.replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"))
 PY
 exit "$result"

@@ -1,8 +1,8 @@
 //! Minimalist Crux journal view: interactive proposal cards, inline actions, and recovery.
 use crate::state::{CruxFilter, CruxInlinePanel, ProposalCard, WorkspaceData};
 use crate::theme::{
-    ACCENT, ACCENT_BG, AMBER, AMBER_BG, GREEN, GREEN_BG, RED, RED_BG, TEXT_MUTED, badge, card,
-    empty_state, nested_card, pill_toggle, primary_button, text_field,
+    badge, card, empty_state, nested_card, pill_toggle, primary_button, text_field, ACCENT,
+    ACCENT_BG, AMBER, AMBER_BG, GREEN, GREEN_BG, RED, RED_BG, TEXT_MUTED,
 };
 use eframe::egui::{self, Layout, RichText};
 use henosis_crux::Event as CruxEvent;

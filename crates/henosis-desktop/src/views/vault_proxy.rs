@@ -1,11 +1,11 @@
 //! Minimalist Identity/Vault & loopback AI Proxy controls.
-use crate::state::{AUTH_SCHEMES, WorkspaceData};
+use crate::state::{WorkspaceData, AUTH_SCHEMES};
 use crate::theme::{
-    ACCENT, ACCENT_BG, AMBER, AMBER_BG, BG_NESTED, GREEN, GREEN_BG, RED, RED_BG, TEXT_MUTED,
     badge, card, empty_state, nested_card, pill_toggle, primary_button, secret_field, text_field,
+    ACCENT, ACCENT_BG, AMBER, AMBER_BG, BG_NESTED, GREEN, GREEN_BG, RED, RED_BG, TEXT_MUTED,
 };
 use eframe::egui::{self, Layout, RichText};
-use henosis_proxy::{ProxyDecision, impedance::ImpedanceMode};
+use henosis_proxy::{impedance::ImpedanceMode, ProxyDecision};
 
 pub fn show(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
     egui::ScrollArea::vertical()
