@@ -205,11 +205,11 @@ pub fn lobachevsky(system: &AxiomSystem) -> Result<LobachevskyResult, String> {
     // Exact search by increasing cardinality: the first cardinality that yields
     // any valid hitting set defines the minimum; all minimal sets at that
     // cardinality are returned.
-    for size in 0u32..=n as u32 {
+    for size in 0u32..=n {
         if size > selectable_mask.count_ones() {
             break;
         }
-        let mut comb = Combination::new(n as u32, size);
+        let mut comb = Combination::new(n, size);
         while let Some(chosen) = comb.next() {
             checked += 1;
             if checked > MAX_COMBINATION_CHECKS {

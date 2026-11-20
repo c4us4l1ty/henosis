@@ -329,20 +329,54 @@ fn contains_pii_ssn(text: &str) -> bool {
     false
 }
 
-/// Heuristic credit card detection: 13-19 digit runs with optional separators.
-/// Uses Luhn-like length check only; not a full validator.
+/// Heuristic credit card detection: standalone 13-19 digit sequences, optionally
+/// grouped into 3+ digit blocks separated by single spaces or hyphens.
 fn contains_pii_credit_card(text: &str) -> bool {
-    let mut run = 0usize;
-    for b in text.bytes() {
-        if b.is_ascii_digit() {
-            run += 1;
-            if run >= 13 && run <= 19 {
-                return true;
-            }
-        } else if matches!(b, b'-' | b' ' | b':') {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !bytes[i].is_ascii_digit() {
+            i += 1;
             continue;
-        } else {
-            run = 0;
+        }
+        if i > 0 && bytes[i - 1].is_ascii_alphanumeric() {
+            while i < bytes.len() && bytes[i].is_ascii_alphanumeric() {
+                i += 1;
+            }
+            continue;
+        }
+
+        let mut total_digits = 0usize;
+        let mut group_count = 0usize;
+        let mut all_groups_valid = true;
+        loop {
+            let group_start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            let group_len = i - group_start;
+            total_digits += group_len;
+            group_count += 1;
+            if group_len < 3 {
+                all_groups_valid = false;
+            }
+
+            if i + 1 < bytes.len()
+                && matches!(bytes[i], b'-' | b' ')
+                && bytes[i + 1].is_ascii_digit()
+            {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+
+        let trailing_alnum = i < bytes.len() && bytes[i].is_ascii_alphanumeric();
+        if !trailing_alnum
+            && (group_count == 1 || all_groups_valid)
+            && (13..=19).contains(&total_digits)
+        {
+            return true;
         }
     }
     false
@@ -465,5 +499,14 @@ mod tests {
 
         let r5 = scanner.scan(b"4111-1111-1111-1111").unwrap_err();
         assert_eq!(r5.category, DlpCategory::PiiCreditCard);
+
+        // ISO-8601 timestamps, 24-digit integers, and numeric-heavy SHA-256 digests
+        // must not false-positive as 13-19 digit credit cards.
+        assert!(scanner
+            .scan(b"Run completed at 2026-11-20 14:30:00 with seed 100000000000000000000000")
+            .is_ok());
+        assert!(scanner
+            .scan(b"sha256=1234567890123abcdef0123456789abcdef0123456789abcdef0123456789abc")
+            .is_ok());
     }
 }

@@ -173,7 +173,9 @@ impl WorldState {
                 if !node.evidence_sha256.contains(&entry.evidence_sha256) {
                     node.evidence_sha256.push(entry.evidence_sha256.clone());
                 }
-                if !node.proof_operators.contains(&entry.operator) {
+                if entry.provenance != AssistanceProvenance::AiGenerated
+                    && !node.proof_operators.contains(&entry.operator)
+                {
                     node.proof_operators.push(entry.operator);
                 }
                 // Assistance-provenance law: AI-generated verification never
@@ -183,11 +185,10 @@ impl WorldState {
                 match entry.provenance {
                     AssistanceProvenance::UnassistedHuman => {
                         node.provenance = AssistanceProvenance::UnassistedHuman;
-                        node.status = if node.proof_operators.len() >= 2
-                            && node.status == EpistemicStatus::Observed
+                        node.status = if node.status == EpistemicStatus::Reproduced
+                            || (node.proof_operators.len() >= 2
+                                && node.status == EpistemicStatus::Observed)
                         {
-                            EpistemicStatus::Reproduced
-                        } else if node.status == EpistemicStatus::Reproduced {
                             EpistemicStatus::Reproduced
                         } else {
                             EpistemicStatus::Observed
@@ -539,7 +540,7 @@ impl Worldline {
             }
             return Err(DagError::NotFound(format!("branch '{name}'")));
         };
-        self.ancestor_order(&[tip.clone()])
+        self.ancestor_order(std::slice::from_ref(tip))
     }
 
     /// Verify every commit hash, parent link, topological sequence invariant,

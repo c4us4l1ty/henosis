@@ -167,7 +167,7 @@ pub fn detect_drift(path: &Path) -> io::Result<DriftReport> {
         });
     }
 
-    entries.sort_by(|a, b| a.event_position.cmp(&b.event_position));
+    entries.sort_by_key(|a| a.event_position);
 
     Ok(DriftReport {
         total: entries.len(),
@@ -191,7 +191,7 @@ pub fn merge_reports(a: DriftReport, b: DriftReport) -> DriftReport {
         }
     }
 
-    entries.sort_by(|a, b| a.event_position.cmp(&b.event_position));
+    entries.sort_by_key(|a| a.event_position);
 
     let mut unchanged = 0usize;
     let mut changed = 0usize;
