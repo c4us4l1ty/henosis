@@ -247,7 +247,7 @@ fn workspace() -> io::Result<()> {
                     Ok(events) => {
                         let event = id.checked_sub(1).and_then(|n| usize::try_from(n).ok()).and_then(|n| events.get(n));
                         match event {
-                            Some(Event::CommandResult { evidence, .. }) => match henosis_evidence::compare_artifact(&evidence) {
+                            Some(Event::CommandResult { evidence, .. }) => match henosis_evidence::compare_artifact(evidence) {
                                 Ok(comparison) => println!("Artifact comparison for result {id}: {}\n  Recorded SHA-256: {}\n  Current SHA-256: {}\nNot proof of authorship, correctness, or capability.", if comparison.matches { "MATCH" } else { "DIFFERENT" }, comparison.recorded, comparison.current),
                                 Err(error) => eprintln!("Could not compare artifact: {error}"),
                             },
@@ -314,7 +314,7 @@ fn workspace() -> io::Result<()> {
                         Ok(c) => c,
                         Err(error) => { eprintln!("Invalid cost units: {error}"); continue; }
                     };
-                    let prerequisites: Vec<String> = words[8..].iter().cloned().collect();
+                    let prerequisites: Vec<String> = words[8..].to_vec();
                     let contract = RealizationContract {
                         id: words[3].clone(),
                         title: words[4].clone(),
