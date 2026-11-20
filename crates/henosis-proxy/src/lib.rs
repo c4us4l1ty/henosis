@@ -805,10 +805,10 @@ fn parse_request(stream: &TcpStream, max_body: usize) -> Result<ParsedRequest, (
             "content-type" => {
                 content_type = Some(val.to_owned());
             }
-            "anthropic-version" => {
-                if !val.bytes().any(|b| b.is_ascii_control()) && val.len() <= 64 {
-                    anthropic_version = Some(val.to_owned());
-                }
+            "anthropic-version"
+                if !val.bytes().any(|b| b.is_ascii_control()) && val.len() <= 64 =>
+            {
+                anthropic_version = Some(val.to_owned());
             }
             _ => {}
         }

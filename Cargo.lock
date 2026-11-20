@@ -1242,7 +1242,17 @@ name = "henosis-desktop"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "henosis-akashi",
+ "henosis-crux",
+ "henosis-dag",
+ "henosis-evidence",
+ "henosis-leverage",
+ "henosis-proxy",
+ "henosis-vault",
+ "serde_json",
  "shell-words",
+ "tempfile",
+ "zeroize",
 ]
 
 [[package]]

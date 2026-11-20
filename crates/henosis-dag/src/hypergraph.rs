@@ -316,7 +316,8 @@ impl CsrHypergraph {
         let mut executable_contracts: Vec<String> = fired
             .iter()
             .enumerate()
-            .filter_map(|(e, &ok)| ok.then(|| self.contracts[e].id.clone()))
+            .filter(|&(_, &ok)| ok)
+            .map(|(e, _)| self.contracts[e].id.clone())
             .collect();
         executable_contracts.sort();
 

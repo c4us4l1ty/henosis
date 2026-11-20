@@ -9,13 +9,13 @@ use henosis_dag::{
 use henosis_vault::{Identity, keyring::{AuthScheme, UnlockedVault}};
 use henosis_akashi::{
     build_bundle, load_bundle, run_suite, save_bundle, verify_from_evidence, BundleInput,
-    FileMutation, PredictedOutcome, PerturbationCase,
+    PerturbationCase,
 };
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  launch-group /absolute/path [args...]  Start a Unix process group\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  stop-group ID                        Stop a child and its process group (Unix)\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  runenv FILE ID PROJECT ARTIFACT EXIT KEY[,KEY...] PROGRAM [ARGS...]\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  drift FILE                           Report artifact drift across journal command results\n  stats FILE                           Show journal event statistics\n  search FILE PATTERN                  Search journal events by text pattern\n  export FILE FORMAT                   Export journal to json or csv\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  dag init FILE                        Create a new Worldline Merkle-DAG file\n  dag node FILE ID KIND TITLE DOMAIN SUMMARY STATUS PROVENANCE  Upsert a World Model node\n  dag contract FILE ID TITLE OUTPUT VERIFICATION COST [PREREQ...]  Upsert a realization contract\n  dag verify FILE NODE OPERATOR PROVENANCE EVIDENCE_SHA BLACKOUT SUMMARY  Record a verification\n  dag fail FILE ID TARGET ASSUMPTION TRIGGER PREDICTED OBSERVED [EVIDENCE_SHA]  Record a failure atlas entry\n  dag expose FILE ID SOURCE TOPIC NOTES [PROMPT_SHA]  Quarantine an exposure\n  dag resolve FILE EXPOSURE_ID NODE_ID  Resolve a quarantined exposure\n  dag tag FILE TAGNAME COMMITID        Tag a commit\n  dag log FILE [BRANCH]                Show commit log\n  dag state FILE                       Materialize head World Model state\n  dag verifyall FILE [REQUIRE_SIGS]    Verify every commit\n  dag branch FILE NAME [FROM_COMMIT]   Create a branch\n  dag checkout FILE BRANCH             Switch branches\n  dag merge FILE SOURCE_BRANCH RATIONALE  Merge a branch into head\n  dag key PHRASE [PASSPHRASE]             Recover an Ed25519 identity into this session\n  dag whoami                              Show the session key fingerprint\n  akashi bundle FILE NODE OUTPUT.hcap [SIGN true/false]  Build and sign a capability bundle\n  akashi verify-bundle FILE.hcap [STRICT true/false]     Load and verify a capability bundle\n  akashi verify-from-evidence JOURNAL RESULT_ID NODE_ID OPERATOR PROVENANCE SUMMARY DAG_FILE\n                                                          Verify a crux command result and record it in a dag worldline\n  akashi import BUNDLE.hcap DAG_FILE                      Import a signed peer bundle (provenance=External)\n  akashi perturb CASES.json PROJECT_DIR TARGET_ID DAG_FILE  Run perturbation suite, record failures in dag\n  vault create PATH PASSWORD PASSPHRASE  Create a new keyring vault\n  vault open PATH PASSPHRASE           Open an existing keyring vault into session\n  vault summary                        Show session vault summary\n  vault set NAME SCHEME [URL] SECRET   Store a provider credential\n  vault list                           List stored credentials\n  vault remove NAME                    Remove a stored credential\n  vault save PATH PASSWORD               Save session vault to disk\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
+const HELP: &str = "Commands:\n  launch /absolute/path [arguments...]  Start a background process\n  launch-group /absolute/path [args...]  Start a Unix process group\n  list                                 Show direct children and their status\n  stop ID                              Stop a direct child\n  stop-group ID                        Stop a child and its process group (Unix)\n  propose FILE GOAL HYPOTHESIS TEST    Record a proposed crux and test\n  observe FILE ID OUTCOME              Record an experiment outcome\n  assess FILE ID INFO FAILURE COST      Score each estimate from 1 to 5\n  rank FILE                            Rank assessed proposals\n  close FILE ID REASON                 Close a proposal\n  reopen FILE ID REASON                Reopen a proposal\n  show FILE ID                         Show a proposal and its history\n  run FILE ID PROJECT ARTIFACT EXIT PROGRAM [ARGS...]  Run trusted experiment\n  runenv FILE ID PROJECT ARTIFACT EXIT KEY[,KEY...] PROGRAM [ARGS...]\n  compare FILE RESULT_ID               Compare current artifact with recorded hash\n  drift FILE                           Report artifact drift across journal command results\n  stats FILE                           Show journal event statistics\n  search FILE PATTERN                  Search journal events by text pattern\n  export FILE FORMAT                   Export journal to json or csv\n  review FILE ATTEMPT NOTE              Record a user recovery note\n  pending FILE                         List unfinished attempts\n  backup FILE DEST                     Save a new plaintext snapshot\n  journal FILE                         Show recorded events\n  dag init FILE                        Create a new Worldline Merkle-DAG file\n  dag node FILE ID KIND TITLE DOMAIN SUMMARY STATUS PROVENANCE  Upsert a World Model node\n  dag contract FILE ID TITLE OUTPUT VERIFICATION COST [PREREQ...]  Upsert a realization contract\n  dag verify FILE NODE OPERATOR PROVENANCE EVIDENCE_SHA BLACKOUT SUMMARY  Record a verification\n  dag fail FILE ID TARGET ASSUMPTION TRIGGER PREDICTED OBSERVED [EVIDENCE_SHA]  Record a failure atlas entry\n  dag expose FILE ID SOURCE TOPIC NOTES [PROMPT_SHA]  Quarantine an exposure\n  dag resolve FILE EXPOSURE_ID NODE_ID  Resolve a quarantined exposure\n  dag tag FILE TAGNAME COMMITID        Tag a commit\n  dag log FILE [BRANCH]                Show commit log\n  dag state FILE                       Materialize head World Model state\n  dag verifyall FILE [REQUIRE_SIGS]    Verify every commit\n  dag branch FILE NAME [FROM_COMMIT]   Create a branch\n  dag checkout FILE BRANCH             Switch branches\n  dag merge FILE SOURCE_BRANCH RATIONALE  Merge a branch into head\n  dag key PHRASE [PASSPHRASE]             Recover an Ed25519 identity into this session\n  dag whoami                              Show the session key fingerprint\n  akashi bundle FILE NODE OUTPUT.hcap [SIGN true/false]  Build and sign a capability bundle\n  akashi verify-bundle FILE.hcap [STRICT true/false]     Load and verify a capability bundle\n  akashi verify-from-evidence JOURNAL RESULT_ID NODE_ID OPERATOR PROVENANCE SUMMARY DAG_FILE\n                                                          Verify a crux command result and record it in a dag worldline\n  akashi import BUNDLE.hcap DAG_FILE                      Import a signed peer bundle (provenance=External)\n  akashi perturb CASES.json PROJECT_DIR TARGET_ID DAG_FILE  Run perturbation suite, record failures in dag\n  vault create PATH PASSWORD [PASSPHRASE]  Create a new keyring vault\n  vault open PATH PASSWORD             Open an existing keyring vault into session\n  vault summary                        Show session vault summary\n  vault set NAME SCHEME [URL] SECRET   Store a provider credential\n  vault list                           List stored credentials\n  vault remove NAME                    Remove a stored credential\n  vault save PATH PASSWORD               Save session vault to disk\n  help                                 Show this help\n  exit                                 Stop direct children and exit\n\nArguments support shell-style quoting; no shell is invoked.";
 
 // User-controlled text must not emit terminal control sequences.
 // Keep ordinary Unicode intact while making control characters visible.
@@ -201,7 +201,7 @@ fn workspace() -> io::Result<()> {
                                             Err(error) => Event::ExperimentFailed { proposal, attempt, error: error.to_string() },
                                         };
                                         match henosis_crux::append(path, result.clone()) {
-                                            Ok(_id) => print_event(proposal as usize, &result),
+                                            Ok(id) => print_event(usize::try_from(id).expect("journal bounded"), &result),
                                             Err(error) => eprintln!("Attempt {attempt} may have run, but recording its outcome failed: {error}. Inspect the journal and project before retrying."),
                                         }
                                     },
@@ -247,7 +247,7 @@ fn workspace() -> io::Result<()> {
                     Ok(events) => {
                         let event = id.checked_sub(1).and_then(|n| usize::try_from(n).ok()).and_then(|n| events.get(n));
                         match event {
-                            Some(Event::CommandResult { evidence, .. }) => match henosis_evidence::compare_artifact(&evidence) {
+                            Some(Event::CommandResult { evidence, .. }) => match henosis_evidence::compare_artifact(evidence) {
                                 Ok(comparison) => println!("Artifact comparison for result {id}: {}\n  Recorded SHA-256: {}\n  Current SHA-256: {}\nNot proof of authorship, correctness, or capability.", if comparison.matches { "MATCH" } else { "DIFFERENT" }, comparison.recorded, comparison.current),
                                 Err(error) => eprintln!("Could not compare artifact: {error}"),
                             },
@@ -314,7 +314,7 @@ fn workspace() -> io::Result<()> {
                         Ok(c) => c,
                         Err(error) => { eprintln!("Invalid cost units: {error}"); continue; }
                     };
-                    let prerequisites: Vec<String> = words[8..].iter().cloned().collect();
+                    let prerequisites: Vec<String> = words[8..].to_vec();
                     let contract = RealizationContract {
                         id: words[3].clone(),
                         title: words[4].clone(),
@@ -477,7 +477,7 @@ fn workspace() -> io::Result<()> {
                             if commits.is_empty() { println!("No commits."); }
                             for commit in commits {
                                 let signer = if commit.signature_hex.is_some() { "signed" } else { "unsigned" };
-                                println!("{}  seq={}  {}  {}", commit.id, commit.seq, signer, commit.message);
+                                println!("{}  seq={}  {}  {}", commit.id, commit.seq, signer, terminal_text(&commit.message));
                                 for op in &commit.ops {
                                     println!("    op: {:?}", op);
                                 }
@@ -589,7 +589,19 @@ fn workspace() -> io::Result<()> {
                     let path = Path::new(&words[2]);
                     let node_id = words[3].as_str();
                     let output = Path::new(&words[4]);
-                    let sign = if words.len() == 6 { words[5] == "true" } else { false };
+                    let sign = if words.len() == 6 {
+                        match words[5].as_str() {
+                            "true" => true,
+                            "false" => false,
+                            _ => { eprintln!("SIGN must be 'true' or 'false'."); continue; }
+                        }
+                    } else {
+                        false
+                    };
+                    if sign && session_key.is_none() {
+                        eprintln!("Cannot sign bundle: no session key loaded. Use: dag key PHRASE [PASSPHRASE]");
+                        continue;
+                    }
                     let wl = match Worldline::load(path) {
                         Ok(wl) => wl,
                         Err(error) => { eprintln!("Could not load worldline: {error}"); continue; }
@@ -764,7 +776,7 @@ fn workspace() -> io::Result<()> {
                         Err(error) => eprintln!("Could not commit import: {error}"),
                     }
                 },
-                "perturb" if words.len() == 5 => {
+                "perturb" if words.len() == 6 => {
                     let cases_path = Path::new(&words[2]);
                     let project_path = Path::new(&words[3]);
                     let target_id = words[4].as_str();
@@ -821,18 +833,22 @@ fn workspace() -> io::Result<()> {
                 _ => eprintln!("Unknown akashi subcommand. Try: bundle, verify-bundle, verify-from-evidence, import, perturb."),
             },
             "vault" if words.len() >= 2 => match words[1].as_str() {
-                "create" if words.len() == 5 => {
+                "create" if words.len() == 4 || words.len() == 5 => {
                     let path = Path::new(&words[2]);
                     let password = words[3].as_bytes();
-                    let passphrase = words[4].as_str();
-                    if UnlockedVault::create_new(path, password, passphrase).is_err() {
-                        eprintln!("Could not create vault.");
-                        continue;
-                    }
+                    let passphrase = if words.len() == 5 { words[4].as_str() } else { "" };
+                    let mnemonic = match UnlockedVault::create_new(path, password, passphrase) {
+                        Ok((mnemonic, _)) => mnemonic,
+                        Err(error) => {
+                            eprintln!("Could not create vault: {error}");
+                            continue;
+                        }
+                    };
                     match UnlockedVault::open(path, password) {
                         Ok(vault) => {
                             session_vault = Some(vault);
                             println!("Created new keyring vault at {}.", words[2]);
+                            println!("Recovery phrase (back up securely; shown once): {}", terminal_text(mnemonic.as_str()));
                         },
                         Err(error) => eprintln!("Could not open vault: {error}"),
                     }
@@ -857,21 +873,22 @@ fn workspace() -> io::Result<()> {
                             println!("  Fingerprint: {}", summary.fingerprint);
                             println!("  Credentials: {}", summary.credential_count);
                         },
-                        None => eprintln!("No vault open. Use: vault open PATH PASSPHRASE"),
+                        None => eprintln!("No vault open. Use: vault open PATH PASSWORD"),
                     }
                 },
-                "set" if words.len() >= 6 => {
+                "set" if words.len() == 5 || words.len() == 6 => {
                     let vault = match &mut session_vault {
                         Some(v) => v,
-                        None => { eprintln!("No vault open. Use: vault open PATH PASSPHRASE"); continue; }
+                        None => { eprintln!("No vault open. Use: vault open PATH PASSWORD"); continue; }
                     };
                     let name = words[2].as_str();
                     let scheme = match AuthScheme::parse(words[3].as_str()) {
                         Ok(s) => s,
                         Err(error) => { eprintln!("{error}"); continue; }
                     };
-                    let (base_url, secret_idx) = if words.len() >= 7 && words[4] != "-" {
-                        (Some(words[4].clone()), 5)
+                    let (base_url, secret_idx) = if words.len() == 6 {
+                        let url = if words[4] == "-" { None } else { Some(words[4].clone()) };
+                        (url, 5)
                     } else {
                         (None, 4)
                     };
@@ -884,7 +901,7 @@ fn workspace() -> io::Result<()> {
                 "list" if words.len() == 2 => {
                     let vault = match &session_vault {
                         Some(v) => v,
-                        None => { eprintln!("No vault open. Use: vault open PATH PASSPHRASE"); continue; }
+                        None => { eprintln!("No vault open. Use: vault open PATH PASSWORD"); continue; }
                     };
                     for summary in vault.list_credentials() {
                         println!("  {} ({}) {} bytes{}", summary.name, summary.auth_scheme.as_str(), summary.secret_len, summary.base_url.as_deref().map_or("".into(), |u| format!(" @ {}", u)));
@@ -893,7 +910,7 @@ fn workspace() -> io::Result<()> {
                 "remove" if words.len() == 3 => {
                     let vault = match &mut session_vault {
                         Some(v) => v,
-                        None => { eprintln!("No vault open. Use: vault open PATH PASSPHRASE"); continue; }
+                        None => { eprintln!("No vault open. Use: vault open PATH PASSWORD"); continue; }
                     };
                     match vault.remove_credential(words[2].as_str()) {
                         Ok(()) => println!("Removed credential {}.", words[2]),
@@ -903,7 +920,7 @@ fn workspace() -> io::Result<()> {
                 "save" if words.len() == 4 => {
                     let vault = match &mut session_vault {
                         Some(v) => v,
-                        None => { eprintln!("No vault open. Use: vault open PATH PASSPHRASE"); continue; }
+                        None => { eprintln!("No vault open. Use: vault open PATH PASSWORD"); continue; }
                     };
                     let password = words[3].as_bytes();
                     match vault.save(Path::new(&words[2]), password) {
@@ -1037,10 +1054,9 @@ fn workspace() -> io::Result<()> {
             },
             "export" if words.len() == 3 => match words[2].as_str() {
                 "json" => match henosis_crux::read(Path::new(&words[1])) {
-                    Ok(events) => {
-                        let json = serde_json::to_string_pretty(&events)
-                            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
-                        println!("{json}");
+                    Ok(events) => match serde_json::to_string_pretty(&events) {
+                        Ok(json) => println!("{json}"),
+                        Err(error) => eprintln!("Could not serialize journal: {error}"),
                     },
                     Err(error) => eprintln!("Could not read journal: {error}"),
                 },
@@ -1058,8 +1074,8 @@ fn workspace() -> io::Result<()> {
                                 Event::AttemptReviewed { .. } => "attempt_reviewed",
                                 Event::CommandResult { .. } => "command_result",
                             };
-                            let details = format!("{event:?}").replace('"', "\"\"");
-                            println!("{index},{kind},\"{details}\"");
+                            let details = terminal_text(&format!("{event:?}")).replace('"', "\"\"");
+                            println!("{},{kind},\"{details}\"", index + 1);
                         }
                     },
                     Err(error) => eprintln!("Could not read journal: {error}"),

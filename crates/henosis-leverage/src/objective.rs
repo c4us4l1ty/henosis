@@ -64,10 +64,16 @@ pub struct DominanceReport {
 
 impl DominanceReport {
     pub fn relation_to(&self, other: &DominanceReport) -> DominanceRelation {
-        if self.net_interval.lo >= other.net_interval.hi {
+        if self.net_interval.lo >= other.net_interval.hi
+            && (self.net_interval.lo > other.net_interval.lo
+                || self.net_interval.hi > other.net_interval.hi)
+        {
             return DominanceRelation::Dominates;
         }
-        if other.net_interval.lo >= self.net_interval.hi {
+        if other.net_interval.lo >= self.net_interval.hi
+            && (other.net_interval.lo > self.net_interval.lo
+                || other.net_interval.hi > self.net_interval.hi)
+        {
             return DominanceRelation::DominatedBy;
         }
         DominanceRelation::Unresolved
@@ -160,8 +166,9 @@ pub fn pareto_frontier(reports: &[DominanceReport]) -> Vec<String> {
 pub fn is_dominated_by_frontier(candidate: &Objective, frontier: &[DominanceReport]) -> bool {
     let candidate_net = candidate.net();
     frontier.iter().any(|report| {
-        // `report.action` strictly dominates `candidate` iff report.lo >= candidate.hi.
         report.net_interval.lo >= candidate_net.hi
+            && (report.net_interval.lo > candidate_net.lo
+                || report.net_interval.hi > candidate_net.hi)
     })
 }
 
@@ -201,5 +208,17 @@ mod tests {
         let reports = analyze(&objectives).unwrap();
         assert_eq!(reports[0].relation_to(&reports[1]), DominanceRelation::Unresolved);
         assert_eq!(pareto_frontier(&reports), vec!["A".to_owned(), "B".to_owned()]);
+    }
+
+    #[test]
+    fn identical_point_intervals_do_not_mutually_eliminate() {
+        let objectives = [
+            obj("a", "A", 10.0, 10.0, 2.0),
+            obj("b", "B", 10.0, 10.0, 2.0),
+        ];
+        let reports = analyze(&objectives).unwrap();
+        assert_eq!(reports[0].relation_to(&reports[1]), DominanceRelation::Unresolved);
+        assert_eq!(pareto_frontier(&reports), vec!["A".to_owned(), "B".to_owned()]);
+        assert!(!is_dominated_by_frontier(&obj("c", "C", 8.0, 8.0, 0.0), &reports));
     }
 }

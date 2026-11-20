@@ -146,7 +146,7 @@ fn validate(events: &[Event], event: &Event, resolved: &HashSet<u64>) -> io::Res
         Event::AttemptReviewed { proposal, attempt, note } => is_proposal(proposal) && nonempty(note) && attempt_request(*attempt, *proposal).is_some(),
         Event::CommandResult { proposal, attempt, evidence } => is_proposal(proposal)
             && henosis_evidence::validate_env_keys(&evidence.env_keys).is_ok()
-            && attempt.is_none_or(|id| attempt_request(id, *proposal).is_some_and(|request| request.matches(&evidence))),
+            && attempt.is_none_or(|id| attempt_request(id, *proposal).is_some_and(|request| request.matches(evidence))),
         Event::StatusChanged { proposal, reason, .. } => nonempty(reason) && is_proposal(proposal),
         Event::Assessed { proposal, information, failure, cost } => {
             is_proposal(proposal) && [*information, *failure, *cost].iter().all(|n| (1..=5).contains(n))

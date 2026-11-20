@@ -205,11 +205,11 @@ pub fn lobachevsky(system: &AxiomSystem) -> Result<LobachevskyResult, String> {
     // Exact search by increasing cardinality: the first cardinality that yields
     // any valid hitting set defines the minimum; all minimal sets at that
     // cardinality are returned.
-    for size in 0u32..=n as u32 {
+    for size in 0u32..=n {
         if size > selectable_mask.count_ones() {
             break;
         }
-        let mut comb = Combination::new(n as u32, size);
+        let mut comb = Combination::new(n, size);
         while let Some(chosen) = comb.next() {
             checked += 1;
             if checked > MAX_COMBINATION_CHECKS {
@@ -317,7 +317,7 @@ mod combination {
             } else {
                 (0..size).collect()
             };
-            Self { n, size, vals, finished: size == 0 || size > n }
+            Self { n, size, vals, finished: size > n }
         }
 
         pub(super) fn next(&mut self) -> Option<Vec<u32>> {
@@ -404,6 +404,18 @@ mod tests {
             Event::Proposed { goal, .. } => assert!(goal.contains("[system sys-1]")),
             _ => unreachable!(),
         }
+    }
+
+    #[test]
+    fn conflict_free_system_returns_empty_hitting_set() {
+        let system = AxiomSystem {
+            id: "sys-clean".into(),
+            axioms: vec![axiom("a1", "iron"), axiom("a2", "convention")],
+            conflicts: vec![],
+        };
+        let result = lobachevsky(&system).unwrap();
+        assert_eq!(result.minimal_hitting_sets.len(), 1);
+        assert!(result.minimal_hitting_sets[0].annihilated_axioms.is_empty());
     }
 }
 

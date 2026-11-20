@@ -222,3 +222,40 @@ fn workspace_compares_artifacts_without_running_commands() {
     assert!(String::from_utf8(missing.stderr).unwrap().contains("Could not compare artifact"));
     assert_eq!(henosis_crux::read(&path).unwrap().len(), 2);
 }
+
+#[test]
+fn vault_create_set_and_akashi_perturb_argument_guards() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = "\
+propose crux.jsonl g h t
+export crux.jsonl csv
+vault create test.hnv my-vault-pw
+vault set ollama bearer secret-123
+vault set local-vllm bearer http://127.0.0.1:8000 secret-45678
+vault list
+akashi bundle worldline.json cap-x out.hcap true
+akashi perturb a b c
+akashi perturb missing.json . cap-x worldline.json
+exit
+";
+    let mut child = Command::new(env!("CARGO_BIN_EXE_henosis-shell"))
+        .current_dir(directory.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stdout.contains("position,type,details\n1,proposed,"), "{stdout}");
+    assert!(stdout.contains("Recovery phrase (back up securely; shown once):"), "{stdout}");
+    assert!(stdout.contains("ollama (bearer) 10 bytes"), "{stdout}");
+    assert!(stdout.contains("local-vllm (bearer) 12 bytes @ http://127.0.0.1:8000"), "{stdout}");
+    assert!(stderr.contains("Cannot sign bundle: no session key loaded."), "{stderr}");
+    assert!(stderr.contains("Unknown akashi subcommand."), "{stderr}");
+    assert!(stderr.contains("Could not read cases file:"), "{stderr}");
+}
+

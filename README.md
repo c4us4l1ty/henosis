@@ -74,28 +74,28 @@ both debug binaries: extract them together and launch `henosis-desktop`.
 These are development builds, not signed installers or standalone app bundles;
 Linux still needs the native runtime libraries above.
 
-1. Open **Connection** and click **Start workspace**. The backend defaults to
-   `henosis-shell` beside the GUI binary; edit the executable path if installed
-   elsewhere. Only choose a trusted Henosis binary.
-2. **Processes** launches an absolute executable path with optional quoted
-   arguments, lists child IDs, and stops a child (or a Unix process group). On Unix, GUI
-   launches use the new `launch-group` command to create a separate process group;
-   CLI `launch` retains its direct-child behavior.
-3. **Crux journal** provides forms to propose, observe, assess, rank, inspect,
-   close/reopen, and search journal entries. **Worldline** provides inspection,
-   initialization, and branch/tag/merge actions. Relative file paths resolve
-   against the working directory shown in Connection, not the binary directory.
-   Existing journal/DAG format validation and locking remain in the Rust backend.
-4. **Console** exposes the remaining CLI commands; **Command reference** shows
-   their syntax. This is not an OS terminal: terminal control sequences are
-   displayed as text. Child programs have no interactive input.
-
-Results and validation errors appear in **Workspace output** (bounded to roughly
-200 KB; older output is discarded). Stdout/stderr are interleaved and may arrive
-out of order. Output is not a structured process table or a durable log. The UI
-saves neither settings nor console history. Do not enter secrets, credentials,
-passwords, or mnemonics in its visible console; secret-entry UI is not implemented.
-Journal records are plaintext and are not automatically verified capabilities.
+1. On launch, the app automatically connects to a sibling `henosis-shell` binary
+   when present; open **Settings** to change the shell path, reconnect, or edit
+   active file paths (`crux.jsonl`, `worldline.json`, `vault.hnv`). Only choose a
+   trusted Henosis binary.
+2. **Crux** displays interactive proposal cards with plain-English subtitles,
+   inline forms to propose, observe, score, run background experiments, close or
+   reopen proposals, review unfinished attempts, and detect artifact drift.
+3. **Worldline** inspects and edits capability nodes, realization contracts
+   (with interactive backward light-cone views), quarantined exposures, failure
+   boundaries, branches, and signed/unsigned commit history.
+4. **Akashi** verifies capabilities via recorded command results, written proof
+   artifacts, or isolated perturbation suites, and exports/imports `.hcap`
+   bundles.
+5. **Vault & Proxy** manages encrypted `.hnv` vaults and provider credentials
+   using masked password/secret inputs (`Zeroizing<String>`), and controls the
+   local `127.0.0.1` AI Proxy (`Open` / `Socratic` / `Blackout` modes, ephemeral
+   capability tokens, and one-click quarantine of intercepted prompts).
+6. **Processes** launches absolute executable paths (optionally as Unix process
+   groups via `launch-group`) with status cards and one-click **Stop** / **Stop
+   Group** controls, while the collapsible **Console** drawer at the bottom
+   exposes raw shell commands and bounded (~200 KB) output logs. Do not enter
+   secrets, passwords, or mnemonics into the raw console drawer.
 
 Closing the window requests EOF after queued commands and waits for the backend
 to stop/reap direct children. A long-running command can delay closing. The GUI
