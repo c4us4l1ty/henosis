@@ -29,7 +29,11 @@ pub fn show(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
             // Shared target node + provenance header card
             card(ui, |ui| {
                 ui.columns(2, |cols| {
-                    cols[0].label(RichText::new("Capability Node ID").size(12.0).color(TEXT_MUTED));
+                    cols[0].label(
+                        RichText::new("Capability Node ID")
+                            .size(12.0)
+                            .color(TEXT_MUTED),
+                    );
                     cols[0].horizontal(|ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut ws.akashi_node_id)
@@ -135,12 +139,20 @@ fn show_operator_picker(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
 
 fn show_command_result_card(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
     card(ui, |ui| {
-        ui.label(RichText::new("Verify from Crux Command Evidence").size(14.0).strong());
+        ui.label(
+            RichText::new("Verify from Crux Command Evidence")
+                .size(14.0)
+                .strong(),
+        );
         ui.add_space(4.0);
         show_operator_picker(ui, ws);
         ui.add_space(4.0);
 
-        ui.label(RichText::new("Recorded Command Result").size(12.0).color(TEXT_MUTED));
+        ui.label(
+            RichText::new("Recorded Command Result")
+                .size(12.0)
+                .color(TEXT_MUTED),
+        );
         if ws.crux.command_results.is_empty() {
             ui.colored_label(
                 AMBER,
@@ -199,7 +211,11 @@ fn show_written_proof_card(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
         show_operator_picker(ui, ws);
         ui.add_space(4.0);
 
-        ui.label(RichText::new("Written Proof Artifact").size(12.0).color(TEXT_MUTED));
+        ui.label(
+            RichText::new("Written Proof Artifact")
+                .size(12.0)
+                .color(TEXT_MUTED),
+        );
         ui.add(
             egui::TextEdit::multiline(&mut ws.akashi_written_text)
                 .hint_text("Write your unassisted derivation, invariant proof, or critique…")
@@ -298,7 +314,11 @@ fn show_perturbation_card(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
 
 fn show_bundle_card(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
     card(ui, |ui| {
-        ui.label(RichText::new("Portable Capability Bundle (.hcap)").size(14.0).strong());
+        ui.label(
+            RichText::new("Portable Capability Bundle (.hcap)")
+                .size(14.0)
+                .strong(),
+        );
         ui.add_space(4.0);
         text_field(
             ui,

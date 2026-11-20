@@ -21,14 +21,13 @@ pub fn show(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
 fn show_identity_and_vault(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
     card(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Identity & Encrypted Vault").size(14.5).strong());
+            ui.label(
+                RichText::new("Identity & Encrypted Vault")
+                    .size(14.5)
+                    .strong(),
+            );
             if let Some(id) = &ws.active_identity {
-                badge(
-                    ui,
-                    format!("Signer: {}", id.fingerprint()),
-                    GREEN,
-                    GREEN_BG,
-                );
+                badge(ui, format!("Signer: {}", id.fingerprint()), GREEN, GREEN_BG);
             } else {
                 badge(ui, "No Signer Loaded", TEXT_MUTED, BG_NESTED);
             }
@@ -44,7 +43,9 @@ fn show_identity_and_vault(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
             nested_card(ui, |ui| {
                 ui.horizontal(|ui| {
                     badge(ui, "Back Up Now", AMBER, AMBER_BG);
-                    ui.label(RichText::new("12-Word Recovery Phrase (shown once)").strong());
+                    ui.label(
+                        RichText::new("12-Word Recovery Phrase (shown once)").strong(),
+                    );
                 });
                 ui.add_space(4.0);
                 ui.label(RichText::new(phrase.as_str()).monospace().size(13.0));
@@ -223,7 +224,11 @@ fn show_ai_proxy(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
         // Mint ephemeral session capability token
         ui.add_space(6.0);
         ui.separator();
-        ui.label(RichText::new("Ephemeral Capability Sessions").size(13.5).strong());
+        ui.label(
+            RichText::new("Ephemeral Capability Sessions")
+                .size(13.5)
+                .strong(),
+        );
 
         if !proxy_status.provider_names.contains(&ws.session_provider_input)
             && !proxy_status.provider_names.is_empty()
@@ -324,7 +329,11 @@ fn show_ai_proxy(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
         if !exposures.is_empty() {
             ui.add_space(8.0);
             ui.separator();
-            ui.label(RichText::new("Intercepted AI Telemetry").size(13.5).strong());
+            ui.label(
+                RichText::new("Intercepted AI Telemetry")
+                    .size(13.5)
+                    .strong(),
+            );
             let mut to_quarantine = None;
             for rec in exposures.into_iter().take(15) {
                 ui.add_space(4.0);

@@ -18,7 +18,11 @@ pub fn show(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
     if !ws.worldline.exists {
         ui.add_space(28.0);
         ui.vertical_centered(|ui| {
-            ui.label(RichText::new("No Worldline initialized").size(16.0).strong());
+            ui.label(
+                RichText::new("No Worldline initialized")
+                    .size(16.0)
+                    .strong(),
+            );
             ui.add_space(4.0);
             ui.label(
                 RichText::new(format!(
@@ -46,18 +50,8 @@ pub fn show(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
     let failure_count = ws.worldline.state.failures.len();
 
     ui.horizontal_wrapped(|ui| {
-        badge(
-            ui,
-            format!("Branch: {}", wl.head_branch),
-            ACCENT,
-            ACCENT_BG,
-        );
-        badge(
-            ui,
-            format!("{h_count} Unassisted (H)"),
-            GREEN,
-            GREEN_BG,
-        );
+        badge(ui, format!("Branch: {}", wl.head_branch), ACCENT, ACCENT_BG);
+        badge(ui, format!("{h_count} Unassisted (H)"), GREEN, GREEN_BG);
         if assisted_count > 0 {
             badge(ui, format!("{assisted_count} Assisted"), ACCENT, ACCENT_BG);
         }
@@ -160,7 +154,12 @@ fn render_add_drawer(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
                     });
                 text_field(&mut cols[2], "Domain", "systems", &mut ws.wl_node_domain);
             });
-            text_field(&mut *ui, "Title", "Human-readable name", &mut ws.wl_node_title);
+            text_field(
+                &mut *ui,
+                "Title",
+                "Human-readable name",
+                &mut ws.wl_node_title,
+            );
             text_field(
                 &mut *ui,
                 "Summary",
@@ -177,7 +176,11 @@ fn render_add_drawer(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
             });
         }
         WorldlineSubtab::Contracts => {
-            ui.label(RichText::new("Add Realization Contract").size(14.0).strong());
+            ui.label(
+                RichText::new("Add Realization Contract")
+                    .size(14.0)
+                    .strong(),
+            );
             ui.columns(3, |cols| {
                 text_field(
                     &mut cols[0],
@@ -193,7 +196,12 @@ fn render_add_drawer(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
                 );
                 text_field(&mut cols[2], "Cost Units", "2", &mut ws.wl_contract_cost);
             });
-            text_field(&mut *ui, "Title", "Contract title", &mut ws.wl_contract_title);
+            text_field(
+                &mut *ui,
+                "Title",
+                "Contract title",
+                &mut ws.wl_contract_title,
+            );
             text_field(
                 &mut *ui,
                 "Prerequisites (comma-separated capability IDs)",
@@ -216,13 +224,37 @@ fn render_add_drawer(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
             });
         }
         WorldlineSubtab::Quarantine => {
-            ui.label(RichText::new("Quarantine Unverified Exposure").size(14.0).strong());
+            ui.label(
+                RichText::new("Quarantine Unverified Exposure")
+                    .size(14.0)
+                    .strong(),
+            );
             ui.columns(2, |cols| {
-                text_field(&mut cols[0], "Exposure ID", "exp-paper-1", &mut ws.wl_expose_id);
-                text_field(&mut cols[1], "Source", "ai-chat / paper", &mut ws.wl_expose_source);
+                text_field(
+                    &mut cols[0],
+                    "Exposure ID",
+                    "exp-paper-1",
+                    &mut ws.wl_expose_id,
+                );
+                text_field(
+                    &mut cols[1],
+                    "Source",
+                    "ai-chat / paper",
+                    &mut ws.wl_expose_source,
+                );
             });
-            text_field(&mut *ui, "Topic", "Subject area exposed to", &mut ws.wl_expose_topic);
-            text_field(&mut *ui, "Notes", "Context before verification", &mut ws.wl_expose_notes);
+            text_field(
+                &mut *ui,
+                "Topic",
+                "Subject area exposed to",
+                &mut ws.wl_expose_topic,
+            );
+            text_field(
+                &mut *ui,
+                "Notes",
+                "Context before verification",
+                &mut ws.wl_expose_notes,
+            );
             ui.horizontal(|ui| {
                 if primary_button(ui, "Enqueue in Quarantine").clicked() {
                     ws.add_worldline_exposure();
@@ -249,7 +281,12 @@ fn render_add_drawer(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
                 "Input fits in L1 buffer",
                 &mut ws.wl_fail_assumption,
             );
-            text_field(&mut *ui, "Trigger", "Payload > 64 KiB", &mut ws.wl_fail_trigger);
+            text_field(
+                &mut *ui,
+                "Trigger",
+                "Payload > 64 KiB",
+                &mut ws.wl_fail_trigger,
+            );
             ui.columns(2, |cols| {
                 text_field(
                     &mut cols[0],
@@ -310,7 +347,12 @@ fn render_nodes(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
                 };
                 badge(ui, prov_label, TEXT_MUTED, BG_NESTED);
 
-                ui.label(RichText::new(&node.id).monospace().size(12.0).color(TEXT_MUTED));
+                ui.label(
+                    RichText::new(&node.id)
+                        .monospace()
+                        .size(12.0)
+                        .color(TEXT_MUTED),
+                );
 
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("Verify in Akashi →").clicked() {
@@ -521,7 +563,11 @@ fn render_failures(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
                 badge(ui, format!("Target: {}", f.target_id), ACCENT, ACCENT_BG);
             });
             ui.add_space(4.0);
-            ui.label(RichText::new(format!("Trigger: {}", f.trigger)).size(14.0).strong());
+            ui.label(
+                RichText::new(format!("Trigger: {}", f.trigger))
+                    .size(14.0)
+                    .strong(),
+            );
             ui.label(
                 RichText::new(format!("Violated assumption: {}", f.broken_assumption))
                     .size(12.5)
@@ -593,12 +639,7 @@ fn render_history(ui: &mut egui::Ui, ws: &mut WorkspaceData, wl: &henosis_dag::W
     for commit in &ws.worldline.commits {
         card(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                badge(
-                    ui,
-                    format!("seq {}", commit.seq),
-                    ACCENT,
-                    ACCENT_BG,
-                );
+                badge(ui, format!("seq {}", commit.seq), ACCENT, ACCENT_BG);
                 ui.label(
                     RichText::new(&commit.id[..12.min(commit.id.len())])
                         .monospace()

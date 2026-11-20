@@ -23,7 +23,11 @@ pub fn show(
     if !connected {
         ui.add_space(28.0);
         ui.vertical_centered(|ui| {
-            ui.label(RichText::new("Process supervisor disconnected").size(16.0).strong());
+            ui.label(
+                RichText::new("Process supervisor disconnected")
+                    .size(16.0)
+                    .strong(),
+            );
             ui.add_space(4.0);
             ui.label(
                 RichText::new("Connect to henosis-shell to launch and stop supervised children.")
@@ -39,7 +43,11 @@ pub fn show(
 
     card(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Launch Supervised Process").size(14.0).strong());
+            ui.label(
+                RichText::new("Launch Supervised Process")
+                    .size(14.0)
+                    .strong(),
+            );
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("Refresh").clicked() {
                     action = Some(ProcessAction::Send("list".into()));

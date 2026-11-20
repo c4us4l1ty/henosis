@@ -1206,7 +1206,11 @@ impl WorkspaceData {
             false
         };
         let summary = if self.akashi_summary.trim().is_empty() {
-            format!("Written {} artifact ({} bytes)", operator.as_str(), text.len())
+            format!(
+                "Written {} artifact ({} bytes)",
+                operator.as_str(),
+                text.len()
+            )
         } else {
             self.akashi_summary.trim().to_owned()
         };

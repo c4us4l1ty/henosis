@@ -52,12 +52,7 @@ pub fn show(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
                         GREEN_BG,
                     );
                 } else {
-                    badge(
-                        ui,
-                        format!("{issues} artifact(s) drifted"),
-                        AMBER,
-                        AMBER_BG,
-                    );
+                    badge(ui, format!("{issues} artifact(s) drifted"), AMBER, AMBER_BG);
                 }
             }
         }
@@ -77,7 +72,12 @@ pub fn show(ui: &mut egui::Ui, ws: &mut WorkspaceData) {
         card(ui, |ui| {
             ui.label(RichText::new("New Crux Proposal").size(14.0).strong());
             ui.add_space(4.0);
-            text_field(ui, "Goal", "What outcome are you trying to achieve?", &mut ws.crux_goal);
+            text_field(
+                ui,
+                "Goal",
+                "What outcome are you trying to achieve?",
+                &mut ws.crux_goal,
+            );
             text_field(
                 ui,
                 "Hypothesis",
@@ -233,7 +233,9 @@ fn render_proposal_card(ui: &mut egui::Ui, ws: &mut WorkspaceData, item: &Propos
 
         ui.add_space(4.0);
         ui.label(RichText::new(&item.goal).size(15.0).strong());
-        ui.label(RichText::new(format!("Hypothesis: {}", item.hypothesis)).size(13.0));
+        ui.label(
+            RichText::new(format!("Hypothesis: {}", item.hypothesis)).size(13.0),
+        );
         ui.label(
             RichText::new(format!("Test: {}", item.test))
                 .size(12.5)
@@ -334,7 +336,9 @@ fn render_proposal_card(ui: &mut egui::Ui, ws: &mut WorkspaceData, item: &Propos
                         ui.add(
                             egui::Slider::new(&mut ws.crux_fail_score, 1..=5).text("Failure Risk"),
                         );
-                        ui.add(egui::Slider::new(&mut ws.crux_cost_score, 1..=5).text("Cost"));
+                        ui.add(
+                            egui::Slider::new(&mut ws.crux_cost_score, 1..=5).text("Cost"),
+                        );
                     });
                     ui.horizontal(|ui| {
                         if primary_button(ui, "Save Score").clicked() {
@@ -376,12 +380,7 @@ fn render_proposal_card(ui: &mut egui::Ui, ws: &mut WorkspaceData, item: &Propos
                             "test --quiet",
                             &mut ws.crux_run_args,
                         );
-                        text_field(
-                            &mut cols[2],
-                            "Expected Exit",
-                            "0",
-                            &mut ws.crux_run_exit,
-                        );
+                        text_field(&mut cols[2], "Expected Exit", "0", &mut ws.crux_run_exit);
                     });
                     text_field(
                         ui,
